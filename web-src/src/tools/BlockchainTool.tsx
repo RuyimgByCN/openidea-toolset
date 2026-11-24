@@ -3,6 +3,12 @@ import { bridge, copyToClipboard } from "../bridge";
 import { useToolState } from "../hooks/useToolState";
 import { tx } from "../i18n";
 import type { ToolProps } from "../types";
+import {
+  decodeCalldataWords,
+  encodeCalldata,
+  formatRpcValue,
+  normalizeSoliditySignature,
+} from "../utils/evmAbi";
 
 interface ChainDerived {
   name: string;
@@ -65,9 +71,40 @@ const UNIT_GROUPS: Record<string, Array<[string, number]>> = {
   SOL: [["Lamport", 0], ["SOL", 9]],
 };
 
+const RPC_CHAINS: Array<{ id: string; label: string; url: string; sampleMethod: string; sampleParams: string }> = [
+  { id: "eth", label: "Ethereum Mainnet", url: "https://ethereum-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "sepolia", label: "Ethereum Sepolia", url: "https://ethereum-sepolia-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "polygon", label: "Polygon PoS", url: "https://polygon-bor-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "arbitrum", label: "Arbitrum One", url: "https://arbitrum-one-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "optimism", label: "Optimism", url: "https://optimism-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "base", label: "Base", url: "https://base-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "bsc", label: "BNB Smart Chain", url: "https://bsc-rpc.publicnode.com", sampleMethod: "eth_blockNumber", sampleParams: "[]" },
+  { id: "solana", label: "Solana Mainnet", url: "https://api.mainnet-beta.solana.com", sampleMethod: "getSlot", sampleParams: "[]" },
+];
+
+const ABI_PRESETS = [
+  "transfer(address,uint256)",
+  "balanceOf(address)",
+  "approve(address,uint256)",
+  "transferFrom(address,address,uint256)",
+  "Transfer(address indexed from, address indexed to, uint256 value)",
+];
+
+const RPC_METHOD_TEMPLATES: Array<{ method: string; params: string }> = [
+  { method: "eth_blockNumber", params: "[]" },
+  { method: "eth_gasPrice", params: "[]" },
+  { method: "eth_chainId", params: "[]" },
+  { method: "eth_getBalance", params: '["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "latest"]' },
+  { method: "eth_getTransactionCount", params: '["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "latest"]' },
+  { method: "eth_getTransactionByHash", params: '["0x..."]' },
+  { method: "eth_call", params: '[{"to":"0x...","data":"0x..."}, "latest"]' },
+  { method: "getSlot", params: "[]" },
+  { method: "getBalance", params: '["11111111111111111111111111111111"]' },
+];
+
 export default function BlockchainTool({ locale, initialInput, onConsumeInitial }: ToolProps) {
   const [saved, setSaved] = useToolState("blockchain", {
-    subtab: "wallet" as "wallet" | "sign" | "units",
+    subtab: "wallet" as "wallet" | "sign" | "units" | "explorer",
     wordCount: 12,
     account: 0,
     index: 0,
@@ -77,6 +114,13 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
     unitAsset: "ETH",
     unitVal: "1",
     unitSelected: "ETH",
+    abiSig: "transfer(address,uint256)",
+    abiArgs: ["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "1000000000000000000"],
+    calldataHex: "",
+    rpcChain: "eth",
+    rpcUrl: "https://ethereum-rpc.publicnode.com",
+    rpcMethod: "eth_blockNumber",
+    rpcParams: "[]",
   });
   // Keep sensitive wallet credentials and private keys strictly in memory; never persist them.
   const [mnemonic, setMnemonic] = useState(DEFAULT_MNEMONIC);
@@ -87,6 +131,11 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
   const [wallet, setWallet] = useState<WalletResult | null>(null);
   const [signInfo, setSignInfo] = useState<string | null>(null);
   const [verifyRes, setVerifyRes] = useState<{ valid: boolean; recoveredAddress?: string } | null>(null);
+  const [abiHash, setAbiHash] = useState<{ canonical: string; selector: string; topic0: string; types: string[] } | null>(null);
+  const [encodedCalldata, setEncodedCalldata] = useState("");
+  const [decodedCalldata, setDecodedCalldata] = useState<ReturnType<typeof decodeCalldataWords> | null>(null);
+  const [rpcBusy, setRpcBusy] = useState(false);
+  const [rpcResp, setRpcResp] = useState<{ status: number; elapsedMs: number; summary: string | null; raw: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,11 +233,100 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
     return msg;
   };
 
+  useEffect(() => {
+    if (!bridge.isHosted || saved.subtab !== "explorer") return;
+    let cancelled = false;
+    try {
+      const norm = normalizeSoliditySignature(saved.abiSig);
+      bridge
+        .rpc<{ result: string }>("crypto.hash", {
+          text: norm.canonical,
+          inputEncoding: "utf8",
+          alg: "keccak256",
+          outputEncoding: "hex",
+        })
+        .then((r) => {
+          if (cancelled) return;
+          const hex = r.result.toLowerCase();
+          setAbiHash({
+            canonical: norm.canonical,
+            selector: `0x${hex.slice(0, 8)}`,
+            topic0: `0x${hex}`,
+            types: norm.types,
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setAbiHash(null);
+        });
+    } catch {
+      setAbiHash(null);
+    }
+    return () => { cancelled = true; };
+  }, [saved.subtab, saved.abiSig]);
+
+  const runEncodeAbi = () => {
+    setErr(null);
+    if (!abiHash) return;
+    try {
+      const data = encodeCalldata(abiHash.selector, abiHash.types, saved.abiArgs);
+      setEncodedCalldata(data);
+      setSaved((p) => ({ ...p, calldataHex: data }));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const runDecodeAbi = (hexInput = saved.calldataHex) => {
+    setErr(null);
+    try {
+      setDecodedCalldata(decodeCalldataWords(hexInput));
+    } catch (e) {
+      setDecodedCalldata(null);
+      setErr((e as Error).message);
+    }
+  };
+
+  const runRpcQuery = async () => {
+    setErr(null);
+    setRpcBusy(true);
+    try {
+      const parsedParams = JSON.parse(saved.rpcParams || "[]") as unknown;
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: saved.rpcMethod.trim(),
+        params: parsedParams,
+      });
+      const res = await bridge.rpc<{ status: number; elapsedMs: number; bodyText: string }>("http.send", {
+        tabId: "blockchain-rpc",
+        method: "POST",
+        url: saved.rpcUrl.trim(),
+        headers: [["Content-Type", "application/json"]],
+        body,
+        timeoutMs: 15000,
+      });
+      let summary: string | null = null;
+      let pretty = res.bodyText;
+      try {
+        const parsed = JSON.parse(res.bodyText) as { result?: unknown };
+        pretty = JSON.stringify(parsed, null, 2);
+        summary = formatRpcValue(saved.rpcMethod.trim(), parsed.result);
+      } catch {
+        // Keep raw body text if non-JSON
+      }
+      setRpcResp({ status: res.status, elapsedMs: res.elapsedMs, summary, raw: pretty });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setRpcBusy(false);
+    }
+  };
+
   return (
     <div className="ts-tool">
       <div className="ts-tool-head">
-        <span className="ts-tool-title">{tx(locale, "Blockchain & HD Wallet (Offline)", "区块链与 HD 钱包 (离线)")}</span>
-        <span className="ts-badge good">{tx(locale, "100% Offline · Keys in memory only", "纯离线 · 助记词/私钥仅存内存")}</span>
+        <span className="ts-tool-title">{tx(locale, "Blockchain Wallet, ABI & RPC", "区块链钱包 / ABI / RPC 调试")}</span>
+        <span className="ts-badge good">{tx(locale, "Keys in memory only · RPC uses net:ask", "助记词/私钥仅存内存 · 链上 RPC 需 net:ask 授权")}</span>
       </div>
 
       <div className="ts-row">
@@ -200,6 +338,9 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
         </button>
         <button type="button" className={`ts-pill ${saved.subtab === "units" ? "active" : ""}`} onClick={() => setSaved((p) => ({ ...p, subtab: "units" }))}>
           {tx(locale, "Crypto Units", "代币单位换算")}
+        </button>
+        <button type="button" className={`ts-pill ${saved.subtab === "explorer" ? "active" : ""}`} onClick={() => setSaved((p) => ({ ...p, subtab: "explorer" }))}>
+          {tx(locale, "ABI & RPC Explorer", "ABI 与链上 RPC 调试")}
         </button>
       </div>
 
@@ -365,6 +506,162 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {saved.subtab === "explorer" && (
+        <div className="ts-col">
+          <div className="ts-box ts-col" style={{ gap: 6 }}>
+            <span className="ts-label">{tx(locale, "Offline EVM ABI Selector & Calldata", "离线 EVM ABI 选择器与 Calldata 编解码")}</span>
+            <div className="ts-row">
+              {ABI_PRESETS.map((sig) => (
+                <button key={sig} type="button" className="ts-btn sm mono" onClick={() => setSaved((p) => ({ ...p, abiSig: sig }))}>
+                  {sig.split("(")[0]}
+                </button>
+              ))}
+            </div>
+            <input
+              className="ts-input mono"
+              value={saved.abiSig}
+              onChange={(e) => setSaved((p) => ({ ...p, abiSig: e.target.value }))}
+              placeholder="function transfer(address to, uint256 amount)"
+            />
+            {abiHash && (
+              <div className="ts-row">
+                <span className="ts-badge">Canonical: {abiHash.canonical}</span>
+                <button type="button" className="ts-btn sm mono" onClick={() => copyToClipboard(abiHash.selector)}>
+                  Selector: {abiHash.selector}
+                </button>
+                <button type="button" className="ts-btn sm mono" onClick={() => copyToClipboard(abiHash.topic0)}>
+                  Topic0: {abiHash.topic0.slice(0, 18)}…
+                </button>
+              </div>
+            )}
+            {abiHash && abiHash.types.length > 0 && (
+              <div className="ts-col" style={{ gap: 4 }}>
+                {abiHash.types.map((ty, idx) => (
+                  <div key={idx} className="ts-row">
+                    <span className="ts-badge ts-mono" style={{ minWidth: 82 }}>{ty}</span>
+                    <input
+                      className="ts-input mono"
+                      style={{ flex: 1 }}
+                      value={saved.abiArgs[idx] ?? ""}
+                      onChange={(e) => {
+                        const next = [...saved.abiArgs];
+                        next[idx] = e.target.value;
+                        setSaved((p) => ({ ...p, abiArgs: next }));
+                      }}
+                      placeholder={`${ty} #${idx + 1}`}
+                    />
+                  </div>
+                ))}
+                <div className="ts-row">
+                  <button type="button" className="ts-btn primary" onClick={runEncodeAbi}>
+                    {tx(locale, "Encode Calldata", "编码 Calldata")}
+                  </button>
+                  {encodedCalldata && (
+                    <button type="button" className="ts-btn sm" onClick={() => copyToClipboard(encodedCalldata)}>
+                      {tx(locale, "Copy Encoded", "复制编码结果")}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="ts-row">
+              <input
+                className="ts-input mono"
+                style={{ flex: 1 }}
+                value={saved.calldataHex}
+                onChange={(e) => setSaved((p) => ({ ...p, calldataHex: e.target.value }))}
+                placeholder={tx(locale, "Paste raw 0x... calldata to decode words...", "粘贴 0x... Calldata 原始字节解码参数槽位...")}
+              />
+              <button type="button" className="ts-btn sm" onClick={() => runDecodeAbi()}>
+                {tx(locale, "Decode Words", "解码 Calldata")}
+              </button>
+            </div>
+            {decodedCalldata && (
+              <div className="ts-col" style={{ gap: 4 }}>
+                <span className="ts-badge good">Selector: {decodedCalldata.selector}</span>
+                {decodedCalldata.words.map((w) => (
+                  <div key={w.index} className="ts-mono" style={{ fontSize: 11, borderTop: "1px solid var(--ts-border)", paddingTop: 3 }}>
+                    <strong>[{w.index}]</strong> uint256={w.uint256}
+                    {w.address ? ` | addr=${w.address}` : ""}
+                    {w.ascii ? ` | ascii="${w.ascii}"` : ""}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="ts-box ts-col" style={{ gap: 6 }}>
+            <span className="ts-label">{tx(locale, "Live JSON-RPC API Explorer (requires opt-in net:ask)", "链上 JSON-RPC API 调试器（需可选 net:ask 域名授权）")}</span>
+            <div className="ts-row">
+              <select
+                className="ts-select"
+                style={{ width: 175 }}
+                value={saved.rpcChain}
+                onChange={(e) => {
+                  const ch = RPC_CHAINS.find((c) => c.id === e.target.value);
+                  if (ch) {
+                    setSaved((p) => ({
+                      ...p,
+                      rpcChain: ch.id,
+                      rpcUrl: ch.url,
+                      rpcMethod: ch.sampleMethod,
+                      rpcParams: ch.sampleParams,
+                    }));
+                  }
+                }}
+              >
+                {RPC_CHAINS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+              <input
+                className="ts-input mono"
+                style={{ flex: 1 }}
+                value={saved.rpcUrl}
+                onChange={(e) => setSaved((p) => ({ ...p, rpcUrl: e.target.value }))}
+                placeholder="https://..."
+              />
+            </div>
+            <div className="ts-row">
+              <select
+                className="ts-select"
+                style={{ width: 205 }}
+                value={saved.rpcMethod}
+                onChange={(e) => {
+                  const tmpl = RPC_METHOD_TEMPLATES.find((m) => m.method === e.target.value);
+                  setSaved((p) => ({
+                    ...p,
+                    rpcMethod: e.target.value,
+                    rpcParams: tmpl ? tmpl.params : p.rpcParams,
+                  }));
+                }}
+              >
+                {RPC_METHOD_TEMPLATES.map((m) => <option key={m.method} value={m.method}>{m.method}</option>)}
+              </select>
+              <input
+                className="ts-input mono"
+                style={{ flex: 1 }}
+                value={saved.rpcParams}
+                onChange={(e) => setSaved((p) => ({ ...p, rpcParams: e.target.value }))}
+                placeholder="[]"
+              />
+              <button type="button" className="ts-btn primary" disabled={rpcBusy} onClick={runRpcQuery}>
+                {rpcBusy ? tx(locale, "Sending...", "请求中...") : tx(locale, "Send RPC", "发送 RPC")}
+              </button>
+            </div>
+            {rpcResp && (
+              <>
+                <div className="ts-row">
+                  <span className={`ts-badge ${rpcResp.status >= 200 && rpcResp.status < 300 ? "good" : "bad"}`}>
+                    HTTP {rpcResp.status} · {rpcResp.elapsedMs}ms
+                  </span>
+                  {rpcResp.summary && <span className="ts-badge good">{rpcResp.summary}</span>}
+                </div>
+                <textarea className="ts-textarea mono" rows={6} readOnly value={rpcResp.raw} />
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

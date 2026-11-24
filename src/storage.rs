@@ -285,7 +285,7 @@ pub fn sanitize_tool_state(tool_id: &str, state: &Value) -> (Value, bool) {
     let mut changed = false;
 
     let strip_keys: &[&str] = if tool_id == "blockchain" || tool_id.starts_with("blockchain-") {
-        &["mnemonic", "passphrase", "privKey", "privateKey", "seedHex", "showSecrets", "signature"]
+        &["mnemonic", "passphrase", "privKey", "privateKey", "seedHex", "showSecrets", "signature", "rpcAuthHeader"]
     } else if tool_id == "totp" || tool_id.starts_with("totp-") {
         &["secret", "uriInput"]
     } else if tool_id == "asymmetric" || tool_id.starts_with("asymmetric-") {
@@ -302,6 +302,10 @@ pub fn sanitize_tool_state(tool_id: &str, state: &Value) -> (Value, bool) {
         &["headers"]
     } else if tool_id == "urlparser" || tool_id.starts_with("urlparser-") {
         &["password"]
+    } else if tool_id == "ua-headers" || tool_id.starts_with("ua-headers-") {
+        &["rawHeaders", "headers", "cookie", "cookies"]
+    } else if tool_id == "spring-config" || tool_id.starts_with("spring-config-") {
+        &["left", "right", "input", "rawConfig", "envText"]
     } else {
         &[]
     };

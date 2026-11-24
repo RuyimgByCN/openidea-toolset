@@ -1,6 +1,7 @@
 use openidea_plugin::Error;
+use rand::RngExt;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy)]
 pub enum CaseStyle {
@@ -398,6 +399,90 @@ pub fn line_op(s: &str, op: &str, arg: Option<&str>) -> Result<String, Error> {
                 .join("\n")
         }
         "merge-cmd" => return Ok(merge_multiline_cmd(s, arg.unwrap_or("continuation"))),
+        "duplicates-only" => {
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            for l in &lines {
+                *counts.entry(l).or_insert(0) += 1;
+            }
+            let mut emitted = HashSet::new();
+            lines
+                .into_iter()
+                .filter(|l| counts.get(l).copied().unwrap_or(0) >= 2 && emitted.insert(*l))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "shuffle" => {
+            let mut rng = rand::rng();
+            for i in (1..lines.len()).rev() {
+                let j = rng.random_range(0..=i);
+                lines.swap(i, j);
+            }
+            lines.join("\n")
+        }
+        "reverse-words" => lines
+            .into_iter()
+            .map(|l| l.split_whitespace().rev().collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        "swap-words" => lines
+            .into_iter()
+            .map(|l| {
+                let mut words: Vec<&str> = l.split_whitespace().collect();
+                if words.len() >= 2 {
+                    words.swap(0, 1);
+                    words.join(" ")
+                } else {
+                    l.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        "extract-column" => {
+            let raw_arg = arg.unwrap_or("1").trim();
+            let (delim, col_str) = if let Some((d, c)) = raw_arg.rsplit_once(':') {
+                let resolved = if d == r"\t" { "\t" } else { d };
+                (resolved, c.trim())
+            } else {
+                ("", raw_arg)
+            };
+            let col_idx = if col_str.is_empty() {
+                1usize
+            } else {
+                col_str
+                    .parse::<usize>()
+                    .map_err(|_| Error::Invalid("Column index must be a positive integer (e.g. 2 or ,:2)".into()))?
+            };
+            if col_idx == 0 {
+                return Err(Error::Invalid("Column index is 1-based (>= 1)".into()));
+            }
+            lines
+                .into_iter()
+                .map(|l| {
+                    if delim.is_empty() {
+                        l.split_whitespace().nth(col_idx - 1).unwrap_or("").to_owned()
+                    } else {
+                        l.split(delim).nth(col_idx - 1).map(|cell| cell.trim().to_owned()).unwrap_or_default()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "wrap-lines" => {
+            let raw_width = arg.unwrap_or("80").trim();
+            let width = if raw_width.is_empty() {
+                80usize
+            } else {
+                raw_width
+                    .parse::<usize>()
+                    .map_err(|_| Error::Invalid("Line wrap width must be a positive integer".into()))?
+            }
+            .clamp(10, 1000);
+            lines
+                .into_iter()
+                .map(|l| wrap_single_line(l, width))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
         _ => return Err(Error::Invalid(format!("unknown line op {op}"))),
     };
     if trailing && !out.is_empty() && op != "join" {
@@ -405,6 +490,55 @@ pub fn line_op(s: &str, op: &str, arg: Option<&str>) -> Result<String, Error> {
     } else {
         Ok(out)
     }
+}
+
+fn wrap_single_line(line: &str, width: usize) -> String {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    if words.is_empty() {
+        return String::new();
+    }
+    let mut out_lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut cur_len = 0usize;
+
+    for word in words {
+        let wlen = word.chars().count();
+        if wlen > width {
+            if !current.is_empty() {
+                out_lines.push(std::mem::take(&mut current));
+                cur_len = 0;
+            }
+            let mut chunk = String::new();
+            let mut clen = 0usize;
+            for ch in word.chars() {
+                chunk.push(ch);
+                clen += 1;
+                if clen == width {
+                    out_lines.push(std::mem::take(&mut chunk));
+                    clen = 0;
+                }
+            }
+            if !chunk.is_empty() {
+                current = chunk;
+                cur_len = clen;
+            }
+        } else if current.is_empty() {
+            current.push_str(word);
+            cur_len = wlen;
+        } else if cur_len + 1 + wlen <= width {
+            current.push(' ');
+            current.push_str(word);
+            cur_len += 1 + wlen;
+        } else {
+            out_lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+            cur_len = wlen;
+        }
+    }
+    if !current.is_empty() {
+        out_lines.push(current);
+    }
+    out_lines.join("\n")
 }
 
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {

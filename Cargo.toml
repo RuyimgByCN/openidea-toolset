@@ -1,6 +1,6 @@
 [package]
 name = "openidea-toolset"
-version = "0.4.2"
+version = "0.6.0"
 edition = "2024"
 description = "All-in-one offline developer toolset plugin for OpenIDEA"
 license = "Apache-2.0"

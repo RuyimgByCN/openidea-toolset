@@ -13,6 +13,7 @@ pub mod storage;
 pub mod string_tools;
 pub mod text_convert;
 pub mod totp_tools;
+pub mod xml_query;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -1180,6 +1181,12 @@ pub fn handle_rpc(plugin: &mut Toolset, method: &str, params: &Value, ctx: &Invo
             "result": extra_tools::convert_paths_batch(p_str(params, "input"), p_str(params, "target"), p_str(params, "wslDistro"))
         })),
         "calc.eval" => extra_tools::eval_expression(p_str(params, "expr"), p_str(params, "mode")),
+        "xml.query" => xml_query::query_xml(
+            p_str(params, "xml"),
+            p_str(params, "query"),
+            p_str(params, "mode"),
+            p_bool(params, "html", false),
+        ),
 
         // --- File Verification & Blockchain ---
         "crypto.hashFile" => crypto::hash_file_base64(p_str(params, "dataBase64")),
@@ -1496,8 +1503,8 @@ mod tests {
     use openidea_plugin::mock::MockHost;
 
     #[test]
-    fn catalog_has_43_unique_tools() {
-        assert_eq!(catalog::TOOLS.len(), 43);
+    fn catalog_has_55_unique_tools() {
+        assert_eq!(catalog::TOOLS.len(), 55);
         let mut ids = std::collections::HashSet::new();
         for t in catalog::TOOLS {
             assert!(ids.insert(t.id), "duplicate tool id {}", t.id);
@@ -2229,6 +2236,24 @@ mod tests {
             .to_string(),
         );
         let _ = host::storage::set(
+            "tool:ua-headers",
+            &json!({
+                "tab": "headers",
+                "ua": "Mozilla/5.0",
+                "rawHeaders": "Set-Cookie: session=top-secret-cookie\nAuthorization: Bearer secret-hdr"
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:spring-config",
+            &json!({
+                "tab": "diff",
+                "left": "DB_PASSWORD=top-secret-db-pass",
+                "right": "API_KEY=prod-api-key-999"
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
             storage::KEY_HTTP_ACTIVE,
             &json!({
                 "tabId": "http-1",
@@ -2261,6 +2286,10 @@ mod tests {
             "header-secret",
             "hunter2",
             "Bearer top-secret",
+            "top-secret-cookie",
+            "Bearer secret-hdr",
+            "top-secret-db-pass",
+            "prod-api-key-999",
         ] {
             for (k, v) in &store {
                 assert!(!v.contains(forbidden), "storage key {k} still contains scrubbed secret {forbidden:?}");
@@ -2325,5 +2354,116 @@ mod tests {
         assert!(!host.storage()[storage::KEY_HTTP_ACTIVE].contains("live-only-token"));
         assert!(host.storage()[storage::KEY_HTTP_ACTIVE].contains("Accept"));
         plugin.run_command("http-send", &host.invocation(), None).unwrap();
+
+        // Attempting to persist rawHeaders in ua-headers strips sensitive headers
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            12,
+            "storage.setToolState",
+            json!({
+                "toolId": "ua-headers",
+                "state": {
+                    "tab": "headers",
+                    "ua": "CustomUA/1.0",
+                    "rawHeaders": "Cookie: session=fresh-cookie-secret"
+                }
+            }),
+        );
+        let raw_ua = host.storage().get("tool:ua-headers").cloned().unwrap();
+        assert!(!raw_ua.contains("fresh-cookie-secret"));
+        let saved_ua: Value = serde_json::from_str(&raw_ua).unwrap();
+        assert_eq!(saved_ua["ua"], "CustomUA/1.0");
+
+        // Attempting to persist spring-config raw contents strips left/right/envText
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            13,
+            "storage.setToolState",
+            json!({
+                "toolId": "spring-config",
+                "state": {
+                    "tab": "diff",
+                    "left": "SECRET_KEY=fresh-spring-secret",
+                    "right": "TOKEN=fresh-prod-token",
+                    "maskSecrets": true
+                }
+            }),
+        );
+        let raw_cfg = host.storage().get("tool:spring-config").cloned().unwrap();
+        assert!(!raw_cfg.contains("fresh-spring-secret"));
+        assert!(!raw_cfg.contains("fresh-prod-token"));
+        let saved_cfg: Value = serde_json::from_str(&raw_cfg).unwrap();
+        assert_eq!(saved_cfg["tab"], "diff");
+        assert_eq!(saved_cfg["maskSecrets"], true);
+    }
+
+    #[test]
+    fn v050_xml_query_and_new_string_ops() {
+        // New string_tools::line_op transforms
+        assert_eq!(
+            string_tools::line_op("alpha\nbeta\nalpha\ngamma\nbeta", "duplicates-only", None).unwrap(),
+            "alpha\nbeta"
+        );
+        assert_eq!(
+            string_tools::line_op("one two three\na b", "reverse-words", None).unwrap(),
+            "three two one\nb a"
+        );
+        assert_eq!(
+            string_tools::line_op("first second third\nx", "swap-words", None).unwrap(),
+            "second first third\nx"
+        );
+        assert_eq!(
+            string_tools::line_op("alice,admin,20\nbob,user,30", "extract-column", Some(",:2")).unwrap(),
+            "admin\nuser"
+        );
+        assert_eq!(
+            string_tools::line_op("10\tdev\tfoo\n20\tops\tbar", "extract-column", Some(r"\t:3")).unwrap(),
+            "foo\nbar"
+        );
+        assert_eq!(
+            string_tools::line_op("alpha beta gamma delta", "wrap-lines", Some("11")).unwrap(),
+            "alpha beta\ngamma delta"
+        );
+        let shuffled = string_tools::line_op("a\nb\nc\nd", "shuffle", None).unwrap();
+        let mut s_lines: Vec<&str> = shuffled.split('\n').collect();
+        s_lines.sort();
+        assert_eq!(s_lines, vec!["a", "b", "c", "d"]);
+
+        // XPath queries
+        let pom = r#"<project>
+            <dependencies>
+                <dependency scope="compile"><groupId>org.acme</groupId><artifactId>core</artifactId><version>1.0</version></dependency>
+                <dependency scope="test"><groupId>org.junit</groupId><artifactId>junit</artifactId><version>5.10</version></dependency>
+            </dependencies>
+        </project>"#;
+        let xp_text = xml_query::query_xml(pom, "//dependency/artifactId/text()", "xpath", false).unwrap();
+        assert_eq!(xp_text["count"], 2);
+        assert_eq!(xp_text["matches"][0]["value"], "core");
+        assert_eq!(xp_text["matches"][1]["value"], "junit");
+
+        let xp_attr = xml_query::query_xml(pom, "//dependency[@scope='test']/artifactId", "xpath", false).unwrap();
+        assert_eq!(xp_attr["count"], 1);
+        assert_eq!(xp_attr["matches"][0]["value"], "junit");
+
+        let xp_count = xml_query::query_xml(pom, "count(//dependency)", "xpath", false).unwrap();
+        assert_eq!(xp_count["scalar"], 2);
+
+        let xp_pos = xml_query::query_xml(pom, "//dependency[2]/version", "xpath", false).unwrap();
+        assert_eq!(xp_pos["matches"][0]["value"], "5.10");
+
+        let xp_union = xml_query::query_xml(pom, "//groupId | //artifactId", "xpath", false).unwrap();
+        assert_eq!(xp_union["count"], 4);
+
+        // CSS selectors on XML & tolerant HTML
+        let css_res = xml_query::query_xml(pom, "dependencies > dependency[scope=\"test\"] artifactId", "css", false).unwrap();
+        assert_eq!(css_res["count"], 1);
+        assert_eq!(css_res["matches"][0]["value"], "junit");
+
+        let html = "<div id=\"app\"><meta charset=\"utf-8\"><div class=\"card active\"><span data-role=\"title\">Hello</span><br><span>World</span></div></div>";
+        let html_css = xml_query::query_xml(html, ".card.active > span:first-child", "css", true).unwrap();
+        assert_eq!(html_css["count"], 1);
+        assert_eq!(html_css["matches"][0]["value"], "Hello");
     }
 }

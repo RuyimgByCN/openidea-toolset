@@ -130,10 +130,14 @@ export default function StringCaseTool({ locale, initialInput, onConsumeInitial 
           <button type="button" className="ts-btn sm" onClick={() => runOp("sort-desc")}>{tx(locale, "Sort Z→A", "降序")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("natural-sort")}>{tx(locale, "Natural Sort", "自然排序")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("unique")}>{tx(locale, "Dedupe Lines", "去重")}</button>
+          <button type="button" className="ts-btn sm" onClick={() => runOp("duplicates-only")}>{tx(locale, "Duplicates Only", "仅保留重复行")}</button>
+          <button type="button" className="ts-btn sm" onClick={() => runOp("shuffle")}>{tx(locale, "Shuffle Lines", "随机打乱行")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("freq")}>{tx(locale, "Line Freq", "行频统计")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("trim")}>{tx(locale, "Trim Lines", "去首尾空")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("remove-empty")}>{tx(locale, "Drop Empty", "删空行")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("reverse")}>{tx(locale, "Reverse Lines", "行倒序")}</button>
+          <button type="button" className="ts-btn sm" onClick={() => runOp("reverse-words")}>{tx(locale, "Reverse Words", "行内词倒序")}</button>
+          <button type="button" className="ts-btn sm" onClick={() => runOp("swap-words")}>{tx(locale, "Swap 2 Words", "互换前两词")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("reverse-text")}>{tx(locale, "Reverse Chars", "字符倒序")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("number-lines")}>{tx(locale, "Number Lines", "加行号")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("increment")}>{tx(locale, "Num +1", "数字+1")}</button>
@@ -161,6 +165,22 @@ export default function StringCaseTool({ locale, initialInput, onConsumeInitial 
           <button type="button" className="ts-btn sm" onClick={() => runOp("invert-grep")}>{tx(locale, "Invert Grep", "正则排除")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("swap-delim")}>{tx(locale, "Swap Delim", "左右互换")}</button>
           <button type="button" className="ts-btn sm" onClick={() => runOp("align-delim")}>{tx(locale, "Align Cols", "列对齐")}</button>
+          <button
+            type="button"
+            className="ts-btn sm"
+            title={tx(locale, "Arg: col index or delim:col (e.g. 2 or ,:2 or \\t:3)", "参数格式：列号或 分隔符:列号，如 2 或 ,:2 或 \\t:3")}
+            onClick={() => runOp("extract-column")}
+          >
+            {tx(locale, "Extract Col", "提取第 N 列")}
+          </button>
+          <button
+            type="button"
+            className="ts-btn sm"
+            title={tx(locale, "Arg: max characters per line (default 80)", "参数为每行最大字符数，默认 80")}
+            onClick={() => runOp("wrap-lines")}
+          >
+            {tx(locale, "Wrap Lines", "按宽换行")}
+          </button>
         </div>
       </div>
 

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { bridge, copyToClipboard } from "../bridge";
+import { useEffect, useMemo, useState } from "react";
+import { bridge, copyToClipboard, saveHostFile } from "../bridge";
 import { ToolActionBar } from "../components/ToolActionBar";
 import { useToolState } from "../hooks/useToolState";
 import { tx } from "../i18n";
 import type { ToolProps } from "../types";
+import { explainRegexAst, renderRegexRailroadSvg } from "../utils/regexDiagram";
 
 interface MatchItem {
   s: number;
@@ -72,6 +73,12 @@ export default function RegexTesterTool({
   });
   const [res, setRes] = useState<EvalResult | null>(null);
   const [showRef, setShowRef] = useState(false);
+  const [showDiagram, setShowDiagram] = useState(true);
+  const [showExplain, setShowExplain] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const diagram = useMemo(() => renderRegexRailroadSvg(saved.pattern, saved.flags), [saved.pattern, saved.flags]);
+  const explanations = useMemo(() => explainRegexAst(saved.pattern), [saved.pattern]);
 
   useEffect(() => {
     if (initialInput != null) {
@@ -188,9 +195,16 @@ export default function RegexTesterTool({
         <button type="button" className="ts-btn sm" onClick={saveToHistory}>
           {tx(locale, "Save History", "存历史")}
         </button>
+        <button type="button" className={`ts-pill ${showDiagram ? "active" : ""}`} onClick={() => setShowDiagram((v) => !v)}>
+          {tx(locale, "Railroad Diagram", "可视化轨道图")}
+        </button>
+        <button type="button" className={`ts-pill ${showExplain ? "active" : ""}`} onClick={() => setShowExplain((v) => !v)}>
+          {tx(locale, "Explain", "逐段解释")}
+        </button>
         <button type="button" className={`ts-pill ${showRef ? "active" : ""}`} onClick={() => setShowRef((v) => !v)}>
           {tx(locale, "Syntax Ref", "语法参考")}
         </button>
+        {status && <span className="ts-badge good">{status}</span>}
       </div>
 
       {showRef && (
@@ -235,6 +249,62 @@ export default function RegexTesterTool({
       </div>
 
       {res?.error && <div className="ts-err">{res.error}</div>}
+
+      {showDiagram && (
+        <div className="ts-box ts-col" style={{ gap: 6 }}>
+          <div className="ts-row" style={{ justifyContent: "space-between" }}>
+            <span className="ts-label">
+              {tx(locale, "Railroad Diagram", "正则轨道图 (Railroad Diagram)")} ({diagram.width}×{diagram.height})
+            </span>
+            <div className="ts-row">
+              <button
+                type="button"
+                className="ts-btn sm"
+                onClick={async () => {
+                  await copyToClipboard(diagram.svg);
+                  setStatus(tx(locale, "SVG copied", "已复制 SVG"));
+                  setTimeout(() => setStatus(null), 1500);
+                }}
+              >
+                {tx(locale, "Copy SVG", "复制 SVG")}
+              </button>
+              <button
+                type="button"
+                className="ts-btn sm"
+                onClick={async () => {
+                  const savedPath = await saveHostFile("regex-railroad.svg", diagram.svg, [
+                    { name: "SVG", extensions: ["svg"] },
+                  ]);
+                  if (savedPath) {
+                    setStatus(tx(locale, `Saved ${savedPath}`, `已保存 ${savedPath}`));
+                  }
+                }}
+              >
+                {tx(locale, "Save SVG", "保存 SVG")}
+              </button>
+            </div>
+          </div>
+          <div style={{ overflowX: "auto", padding: "4px 0" }}>
+            <img
+              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(diagram.svg)}`}
+              alt={tx(locale, "Regex Railroad Diagram", "正则轨道图")}
+              style={{ maxWidth: "100%", height: "auto", display: "block" }}
+            />
+          </div>
+        </div>
+      )}
+
+      {showExplain && (
+        <div className="ts-box ts-col" style={{ maxHeight: 185, overflowY: "auto", gap: 4 }}>
+          <span className="ts-label">{tx(locale, "Pattern Breakdown", "正则结构逐段解析")}</span>
+          {explanations.map((item, idx) => (
+            <div key={idx} className="ts-row" style={{ paddingLeft: item.depth * 14, gap: 8 }}>
+              <span className="ts-badge ts-mono">{item.token}</span>
+              <span style={{ fontSize: 11.5 }}>{tx(locale, item.descEn, item.descZh)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="ts-split">
         <label className="ts-label">
