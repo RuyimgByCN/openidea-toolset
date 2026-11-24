@@ -3,6 +3,7 @@ import { bridge, copyToClipboard } from "../bridge";
 import { useToolState } from "../hooks/useToolState";
 import { tx } from "../i18n";
 import type { ToolProps } from "../types";
+import { stripUrlPassword } from "../utils/urlSanitize";
 import {
   decodeCalldataWords,
   encodeCalldata,
@@ -103,25 +104,32 @@ const RPC_METHOD_TEMPLATES: Array<{ method: string; params: string }> = [
 ];
 
 export default function BlockchainTool({ locale, initialInput, onConsumeInitial }: ToolProps) {
-  const [saved, setSaved] = useToolState("blockchain", {
-    subtab: "wallet" as "wallet" | "sign" | "units" | "explorer",
-    wordCount: 12,
-    account: 0,
-    index: 0,
-    signChain: "evm",
-    verifyTarget: "",
-    message: "OpenIDEA Toolset Offline Signature",
-    unitAsset: "ETH",
-    unitVal: "1",
-    unitSelected: "ETH",
-    abiSig: "transfer(address,uint256)",
-    abiArgs: ["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "1000000000000000000"],
-    calldataHex: "",
-    rpcChain: "eth",
-    rpcUrl: "https://ethereum-rpc.publicnode.com",
-    rpcMethod: "eth_blockNumber",
-    rpcParams: "[]",
-  });
+  const [saved, setSaved] = useToolState(
+    "blockchain",
+    {
+      subtab: "wallet" as "wallet" | "sign" | "units" | "explorer",
+      wordCount: 12,
+      account: 0,
+      index: 0,
+      signChain: "evm",
+      verifyTarget: "",
+      message: "OpenIDEA Toolset Offline Signature",
+      unitAsset: "ETH",
+      unitVal: "1",
+      unitSelected: "ETH",
+      abiSig: "transfer(address,uint256)",
+      abiArgs: ["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "1000000000000000000"],
+      calldataHex: "",
+      rpcChain: "eth",
+      rpcUrl: "https://ethereum-rpc.publicnode.com",
+      rpcMethod: "eth_blockNumber",
+      rpcParams: "[]",
+    },
+    (state) => ({
+      ...state,
+      rpcUrl: stripUrlPassword(state.rpcUrl),
+    }),
+  );
   // Keep sensitive wallet credentials and private keys strictly in memory; never persist them.
   const [mnemonic, setMnemonic] = useState(DEFAULT_MNEMONIC);
   const [passphrase, setPassphrase] = useState("");

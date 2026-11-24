@@ -4,6 +4,7 @@ import { ToolActionBar } from "../components/ToolActionBar";
 import { useToolState } from "../hooks/useToolState";
 import { tx } from "../i18n";
 import type { ToolProps } from "../types";
+import { stripUrlPassword } from "../utils/urlSanitize";
 
 interface HeaderRow {
   id: string;
@@ -39,17 +40,24 @@ export default function WebSocketClientTool({
   wsPushEvent,
   onConsumeWsPush,
 }: ToolProps) {
-  const [saved, setSaved] = useToolState(`ws-${tabId}`, {
-    url: "wss://echo.websocket.org",
-    subprotocol: "",
-    message: '{\n  "type": "ping",\n  "ts": 1\n}',
-    sendMode: "json" as "text" | "json" | "hex",
-    heartbeatEnabled: false,
-    heartbeatSec: 30,
-    heartbeatMsg: "ping",
-    logFilter: "all" as "all" | "in" | "out" | "sys",
-    showHex: false,
-  });
+  const [saved, setSaved] = useToolState(
+    `ws-${tabId}`,
+    {
+      url: "wss://echo.websocket.org",
+      subprotocol: "",
+      message: '{\n  "type": "ping",\n  "ts": 1\n}',
+      sendMode: "json" as "text" | "json" | "hex",
+      heartbeatEnabled: false,
+      heartbeatSec: 30,
+      heartbeatMsg: "ping",
+      logFilter: "all" as "all" | "in" | "out" | "sys",
+      showHex: false,
+    },
+    (state) => ({
+      ...state,
+      url: stripUrlPassword(state.url),
+    }),
+  );
   // Keep custom handshake headers in memory only; never persist potentially sensitive auth headers.
   const [headers, setHeaders] = useState<HeaderRow[]>([{ id: "h1", key: "", value: "", enabled: true }]);
   const [connected, setConnected] = useState(false);

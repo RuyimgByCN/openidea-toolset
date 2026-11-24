@@ -265,7 +265,11 @@ pub fn sanitize_http_active(req: &HttpActiveRequest) -> (HttpActiveRequest, bool
     let mut clean = req.clone();
     let before = clean.headers.len();
     clean.headers.retain(|(k, _)| !is_sensitive_header_name(k));
-    let changed = clean.headers.len() != before;
+    let mut changed = clean.headers.len() != before;
+    if let Some(scrubbed) = strip_url_password(&clean.url) {
+        clean.url = scrubbed;
+        changed = true;
+    }
     (clean, changed)
 }
 
@@ -273,7 +277,11 @@ pub fn sanitize_ws_active(cfg: &WsActiveConfig) -> (WsActiveConfig, bool) {
     let mut clean = cfg.clone();
     let before = clean.headers.len();
     clean.headers.retain(|(k, _)| !is_sensitive_header_name(k));
-    let changed = clean.headers.len() != before;
+    let mut changed = clean.headers.len() != before;
+    if let Some(scrubbed) = strip_url_password(&clean.url) {
+        clean.url = scrubbed;
+        changed = true;
+    }
     (clean, changed)
 }
 
@@ -336,10 +344,10 @@ pub fn sanitize_tool_state(tool_id: &str, state: &Value) -> (Value, bool) {
         }
     }
 
-    if (tool_id == "urlparser" || tool_id.starts_with("urlparser-"))
-        && let Some(Value::String(raw_url)) = map.get_mut("rawUrl")
-    {
-        if let Some(scrubbed) = strip_url_password(raw_url) {
+    for key in ["url", "rawUrl", "rpcUrl"] {
+        if let Some(Value::String(raw_url)) = map.get_mut(key)
+            && let Some(scrubbed) = strip_url_password(raw_url)
+        {
             *raw_url = scrubbed;
             changed = true;
         }
@@ -349,16 +357,22 @@ pub fn sanitize_tool_state(tool_id: &str, state: &Value) -> (Value, bool) {
 }
 
 fn strip_url_password(raw: &str) -> Option<String> {
-    let scheme_end = raw.find("://")?;
-    let prefix = &raw[..scheme_end + 3];
-    let rest = &raw[scheme_end + 3..];
+    let trimmed = raw.trim();
+    let scheme_end = trimmed.find("://")?;
+    let prefix = &trimmed[..scheme_end + 3];
+    let rest = &trimmed[scheme_end + 3..];
     let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..auth_end];
     let at_pos = authority.rfind('@')?;
     let userinfo = &authority[..at_pos];
     let colon_pos = userinfo.find(':')?;
     let user = &userinfo[..colon_pos];
-    Some(format!("{prefix}{user}@{}", &rest[at_pos + 1..]))
+    let host_and_tail = &rest[at_pos + 1..];
+    if user.is_empty() {
+        Some(format!("{prefix}{host_and_tail}"))
+    } else {
+        Some(format!("{prefix}{user}@{host_and_tail}"))
+    }
 }
 
 pub fn scrub_persisted_secrets() {

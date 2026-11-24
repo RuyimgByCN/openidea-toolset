@@ -2137,6 +2137,56 @@ mod tests {
         );
         assert_eq!(fmt_sql_comment["result"], "SELECT 'a  b' -- c\nFROM items;");
 
+        // 3b. SQL literal prefixes (X'...', B'...', N'...', E'...', R'...', Q'...', U&'...', _charset'...') stay attached
+        let sql_hex = "SELECT X'4142' AS value;";
+        host.open_editor("/proj/hex.sql", "sql", sql_hex, &[(0, 0, 0, 0)]);
+        for (req_id, minify_flag) in [(20, true), (21, false)] {
+            let res = call_view_rpc(
+                &mut plugin,
+                &host,
+                req_id,
+                "format.code",
+                json!({ "text": sql_hex, "lang": "sql", "minify": minify_flag, "indent": "2" }),
+            );
+            assert_eq!(res["result"], "SELECT X'4142' AS value;");
+        }
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            22,
+            "editor.applyText",
+            json!({ "text": "SELECT X'4142' AS value;" }),
+        );
+        assert_eq!(host.editor_text(), "SELECT X'4142' AS value;");
+
+        let sql_prefixes = "select x'4142', b'1010', n'中文  字', e'a\\'b  -- c', r'raw  text', q'quoted', U&'d\\0061t', _utf8mb4'ok  !' from t where col=X'4142';";
+        for (req_id, minify_flag) in [(23, true), (24, false)] {
+            let res = call_view_rpc(
+                &mut plugin,
+                &host,
+                req_id,
+                "format.code",
+                json!({ "text": sql_prefixes, "lang": "sql", "minify": minify_flag, "indent": "2" }),
+            );
+            let out = res["result"].as_str().unwrap();
+            for expected in [
+                "x'4142'",
+                "b'1010'",
+                "n'中文  字'",
+                r"e'a\'b  -- c'",
+                "r'raw  text'",
+                "q'quoted'",
+                r"U&'d\0061t'",
+                "_utf8mb4'ok  !'",
+                "col= X'4142'",
+            ] {
+                assert!(out.contains(expected), "missing {expected:?} in sql output {out:?}");
+            }
+            for broken in ["X '", "x '", "b '", "n '", "e '", "r '", "q '", "U& '", "_utf8mb4 '"] {
+                assert!(!out.contains(broken), "found broken split {broken:?} in sql output {out:?}");
+            }
+        }
+
         // 4. CSS quoted comment markers, escapes, real comment stripping & selector spacing
         let css_quoted = ".x::before { content: \"/* visible */\"; }";
         host.open_editor("/proj/s.css", "css", css_quoted, &[(0, 0, 0, 0)]);
@@ -2173,7 +2223,8 @@ mod tests {
 
     #[test]
     fn secrets_never_persisted_and_legacy_secrets_scrubbed_on_upgrade() {
-        let host = MockHost::install().with_capabilities(&["storage", "events", "net:api.example.com"]);
+        // MockHost checks net:<before-colon>, so grant net:alice alongside net:api.example.com for live userinfo test
+        let host = MockHost::install().with_capabilities(&["storage", "events", "net:api.example.com", "net:alice"]);
 
         // Seed legacy plaintext secrets across all sensitive tools prior to activation (upgrade scenario)
         let _ = host::storage::set(
@@ -2186,6 +2237,7 @@ mod tests {
                 "privKey": "0xdeadbeefdeadbeef",
                 "showSecrets": true,
                 "signature": "0xsig",
+                "rpcUrl": "https://rpcuser:legacy-rpc-url-pass@rpc.example.com/v1",
                 "account": 2,
                 "index": 1
             })
@@ -2215,7 +2267,7 @@ mod tests {
             "tool:http-1",
             &json!({
                 "method": "GET",
-                "url": "https://api.example.com/v1",
+                "url": "https://alice:legacy-http-url-pass@api.example.com/v1",
                 "authToken": "bearer-secret",
                 "authPass": "basic-pass",
                 "curlImport": "curl -H 'Authorization: Bearer x'",
@@ -2227,9 +2279,19 @@ mod tests {
             .to_string(),
         );
         let _ = host::storage::set(
+            "tool:ws-1",
+            &json!({
+                "url": "wss://alice:legacy-ws-url-pass@example.com/socket",
+                "headers": [{ "enabled": true, "key": "Authorization", "value": "Bearer ws-legacy" }],
+                "subprotocol": "chat"
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
             "tool:urlparser-1",
             &json!({
                 "rawUrl": "https://alice:hunter2@example.com/path?a=1",
+                "url": "https://:empty-user-pass@example.com/no-user",
                 "username": "alice",
                 "password": "hunter2"
             })
@@ -2258,10 +2320,20 @@ mod tests {
             &json!({
                 "tabId": "http-1",
                 "method": "GET",
-                "url": "https://api.example.com/v1",
+                "url": "https://alice:active-http-url-pass@api.example.com/v1",
                 "headers": [["Authorization", "Bearer top-secret"], ["X-Trace", "123"]],
                 "body": null,
                 "timeoutMs": 5000
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
+            storage::KEY_WS_ACTIVE,
+            &json!({
+                "tabId": "ws-1",
+                "url": "wss://alice:active-ws-url-pass@example.com/socket",
+                "headers": [["Authorization", "Bearer active-ws-secret"], ["X-Trace", "1"]],
+                "subprotocol": "chat"
             })
             .to_string(),
         );
@@ -2290,6 +2362,14 @@ mod tests {
             "Bearer secret-hdr",
             "top-secret-db-pass",
             "prod-api-key-999",
+            "legacy-rpc-url-pass",
+            "legacy-http-url-pass",
+            "legacy-ws-url-pass",
+            "ws-legacy",
+            "empty-user-pass",
+            "active-http-url-pass",
+            "active-ws-url-pass",
+            "active-ws-secret",
         ] {
             for (k, v) in &store {
                 assert!(!v.contains(forbidden), "storage key {k} still contains scrubbed secret {forbidden:?}");
@@ -2299,8 +2379,15 @@ mod tests {
         let bc: Value = serde_json::from_str(&store["tool:blockchain"]).unwrap();
         assert_eq!(bc["wordCount"], 24);
         assert_eq!(bc["account"], 2);
+        assert_eq!(bc["rpcUrl"], "https://rpcuser@rpc.example.com/v1");
         let url_st: Value = serde_json::from_str(&store["tool:urlparser-1"]).unwrap();
         assert_eq!(url_st["rawUrl"], "https://alice@example.com/path?a=1");
+        assert_eq!(url_st["url"], "https://example.com/no-user");
+        let http_st: Value = serde_json::from_str(&store["tool:http-1"]).unwrap();
+        assert_eq!(http_st["url"], "https://alice@api.example.com/v1");
+        let ws_st: Value = serde_json::from_str(&store["tool:ws-1"]).unwrap();
+        assert_eq!(ws_st["url"], "wss://alice@example.com/socket");
+        assert_eq!(ws_st["subprotocol"], "chat");
 
         // Attempting to persist secrets via storage.setToolState strips secrets before storage write
         call_view_rpc(
@@ -2316,6 +2403,7 @@ mod tests {
                     "passphrase": "fresh pass",
                     "privKey": "0x11223344",
                     "showSecrets": true,
+                    "rpcUrl": "https://rpcuser:fresh-rpc-pass@rpc.example.com/v2",
                     "account": 3
                 }
             }),
@@ -2324,12 +2412,55 @@ mod tests {
         assert!(!raw_bc.contains("fresh sensitive mnemonic"));
         assert!(!raw_bc.contains("fresh pass"));
         assert!(!raw_bc.contains("0x11223344"));
+        assert!(!raw_bc.contains("fresh-rpc-pass"));
         let saved_bc: Value = serde_json::from_str(&raw_bc).unwrap();
         assert_eq!(saved_bc["wordCount"], 18);
         assert_eq!(saved_bc["account"], 3);
+        assert_eq!(saved_bc["rpcUrl"], "https://rpcuser@rpc.example.com/v2");
 
-        // In-memory active_http keeps Authorization header for live http-send while persisted state omits it
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            14,
+            "storage.setToolState",
+            json!({
+                "toolId": "http-review",
+                "state": {
+                    "method": "GET",
+                    "url": "https://alice:SYNTHETIC-HTTP-PASSWORD@example.test/private"
+                }
+            }),
+        );
+        let raw_http_review = host.storage().get("tool:http-review").cloned().unwrap();
+        assert!(!raw_http_review.contains("SYNTHETIC-HTTP-PASSWORD"));
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw_http_review).unwrap()["url"],
+            "https://alice@example.test/private"
+        );
+
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            15,
+            "storage.setToolState",
+            json!({
+                "toolId": "ws-review",
+                "state": {
+                    "url": "wss://alice:SYNTHETIC-WS-PASSWORD@example.test/ws",
+                    "subprotocol": "json"
+                }
+            }),
+        );
+        let raw_ws_review = host.storage().get("tool:ws-review").cloned().unwrap();
+        assert!(!raw_ws_review.contains("SYNTHETIC-WS-PASSWORD"));
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw_ws_review).unwrap()["url"],
+            "wss://alice@example.test/ws"
+        );
+
+        // In-memory active_http keeps Authorization header & URL password for live http-send while persisted state omits both
         host.on_fetch(|req| {
+            assert_eq!(req.url, "https://alice:SYNTHETIC-LIVE-HTTP-PASS@api.example.com/live");
             assert!(req.headers.iter().any(|(k, v)| k == "Authorization" && v == "Bearer live-only-token"));
             Ok(openidea_plugin::HttpResponse {
                 status: 200,
@@ -2345,15 +2476,38 @@ mod tests {
             json!({
                 "tabId": "http-1",
                 "method": "GET",
-                "url": "https://api.example.com/live",
+                "url": "https://alice:SYNTHETIC-LIVE-HTTP-PASS@api.example.com/live",
                 "headers": [["Authorization", "Bearer live-only-token"], ["Accept", "application/json"]],
                 "body": null,
                 "timeoutMs": 5000
             }),
         );
         assert!(!host.storage()[storage::KEY_HTTP_ACTIVE].contains("live-only-token"));
+        assert!(!host.storage()[storage::KEY_HTTP_ACTIVE].contains("SYNTHETIC-LIVE-HTTP-PASS"));
+        assert!(host.storage()[storage::KEY_HTTP_ACTIVE].contains("https://alice@api.example.com/live"));
         assert!(host.storage()[storage::KEY_HTTP_ACTIVE].contains("Accept"));
         plugin.run_command("http-send", &host.invocation(), None).unwrap();
+
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            16,
+            "ws.setActive",
+            json!({
+                "tabId": "ws-1",
+                "url": "wss://alice:SYNTHETIC-LIVE-WS-PASS@example.test/live",
+                "headers": [["Authorization", "Bearer ws-live-token"], ["X-Client", "toolset"]],
+                "subprotocol": "chat"
+            }),
+        );
+        assert_eq!(
+            plugin.active_ws.as_ref().unwrap().url,
+            "wss://alice:SYNTHETIC-LIVE-WS-PASS@example.test/live"
+        );
+        assert!(!host.storage()[storage::KEY_WS_ACTIVE].contains("ws-live-token"));
+        assert!(!host.storage()[storage::KEY_WS_ACTIVE].contains("SYNTHETIC-LIVE-WS-PASS"));
+        assert!(host.storage()[storage::KEY_WS_ACTIVE].contains("wss://alice@example.test/live"));
+        assert!(host.storage()[storage::KEY_WS_ACTIVE].contains("X-Client"));
 
         // Attempting to persist rawHeaders in ua-headers strips sensitive headers
         call_view_rpc(

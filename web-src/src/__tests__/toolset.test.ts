@@ -18,6 +18,7 @@ import { decodeProtobufHexOrBase64, encodeVarint, zigzagDecode, zigzagEncode } f
 import { explainRegexAst, parseRegexAst, renderRegexRailroadSvg } from "../utils/regexDiagram";
 import { bumpSemver, compareSemver, parseSemver, satisfiesRange, sortSemverList } from "../utils/semver";
 import { parseNdjsonLogs, parseStackTrace, unescapeLogTrace } from "../utils/stacktrace";
+import { stripUrlPassword as stripUrlPasswordDirect } from "../utils/urlSanitize";
 import { formatSvg, inspectSvg, minifySvg, svgToJsx } from "../utils/svgTools";
 import { expandTemplate } from "../utils/templateExpander";
 import { convertUnits, formatDurationBreakdown } from "../utils/units";
@@ -173,9 +174,9 @@ describe("Localization, manifest placement, and language setting", () => {
     expect(tx("en-US", "Copy", "复制")).toBe("Copy");
   });
 
-  it("declares secondary = true (Right Bottom), events capability, and version 0.6.0 in plugin.toml", () => {
+  it("declares secondary = true (Right Bottom), events capability, and version 0.6.1 in plugin.toml", () => {
     const manifest = fs.readFileSync(path.resolve(import.meta.dirname, "../../../plugin.toml"), "utf8");
-    expect(manifest).toMatch(/version\s*=\s*"0\.6\.0"/);
+    expect(manifest).toMatch(/version\s*=\s*"0\.6\.1"/);
     expect(manifest).toMatch(/location\s*=\s*"right"\s*\nsecondary\s*=\s*true/);
     expect(manifest).toContain('"events"');
     expect(manifest).toContain('"on-event:websocket-ready"');
@@ -233,6 +234,24 @@ describe("Secret persistence hygiene", () => {
     expect("privKey" in safe).toBe(false);
 
     expect(stripUrlPassword("https://alice:hunter2@example.com/v1?x=1")).toBe("https://alice@example.com/v1?x=1");
+    expect(stripUrlPasswordDirect("wss://alice:SYNTHETIC-WS-PASSWORD@echo.websocket.org/socket")).toBe(
+      "wss://alice@echo.websocket.org/socket",
+    );
+    expect(stripUrlPasswordDirect("https://:SYNTHETIC-HTTP-PASSWORD@example.test/private")).toBe(
+      "https://example.test/private",
+    );
+    expect(stripUrlPasswordDirect("wss://:secret@[::1")).toBe("wss://[::1");
+
+    const toolsDir = path.resolve(import.meta.dirname, "../tools");
+    for (const [file, field] of [
+      ["HttpClientTool.tsx", "url: stripUrlPassword(state.url)"],
+      ["WebSocketClientTool.tsx", "url: stripUrlPassword(state.url)"],
+      ["UrlParserTool.tsx", "rawUrl: stripUrlPassword(state.rawUrl)"],
+      ["BlockchainTool.tsx", "rpcUrl: stripUrlPassword(state.rpcUrl)"],
+    ]) {
+      const src = fs.readFileSync(path.join(toolsDir, file), "utf8");
+      expect(src).toContain(field);
+    }
   });
 
   it("never places wallet or cryptographic secret fields inside useToolState defaults", () => {
