@@ -1,0 +1,72 @@
+[package]
+name = "openidea-toolset"
+version = "0.4.0"
+edition = "2024"
+description = "All-in-one offline developer toolset plugin for OpenIDEA"
+license = "Apache-2.0"
+publish = false
+
+# Standalone plugin repo built for wasm32-wasip2 outside the IDE workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.50" }
+
+# Serialization & data formats
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml_ng = "0.10"
+toml = "1"
+quick-xml = "0.42"
+
+# Regex, time & text
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf-dfa", "perf-onepass", "perf-backtrack", "perf-inline"] }
+chrono = { version = "0.4", features = ["std", "clock"] }
+chrono-tz = "0.10"
+base64 = "0.22"
+hex = "0.4"
+idna = "1"
+
+# IDs & randomness
+uuid = { version = "1", features = ["v1", "v4", "v7", "rng-getrandom"] }
+ulid = "3"
+rand = "0.10"
+getrandom = "0.4"
+
+# Hashing & cryptography (pure Rust)
+crc32fast = "1"
+md-5 = "0.11"
+sha1 = "0.11"
+sha2 = "0.11"
+hmac = "0.13"
+sm3 = "0.5"
+cipher = { version = "0.5", features = ["block-padding", "alloc"] }
+aes = "0.9"
+aes-gcm = "0.11"
+cbc = "0.2"
+ecb = "0.2"
+ctr = "0.10"
+des = "0.9"
+sm4 = "0.6"
+rc4 = "0.2"
+rsa = { version = "0.10", features = ["pkcs1v15", "std", "encoding", "getrandom"] }
+sm2 = { version = "0.14", features = ["arithmetic", "dsa", "pke", "pem", "getrandom", "std"] }
+
+# Offline Blockchain / HD Wallet (pure Rust)
+bip39 = { version = "2", default-features = false, features = ["std"] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["fast"] }
+tiny-keccak = { version = "2", features = ["keccak"] }
+blake2 = "0.10"
+ripemd = "0.1"
+bs58 = "0.5"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

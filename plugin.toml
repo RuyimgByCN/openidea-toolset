@@ -1,0 +1,494 @@
+id = "ruyimg.toolset"
+name = "Toolset"
+version = "0.4.0"
+description = "All-in-one developer toolset aligned with IntelliJ Toolset (43 tools): WebSocket client, TOTP/HOTP 2FA, X.509/PEM certificate inspector, 1D barcode generator (Code128/Code39/EAN/UPC/ITF/Codabar), offline Mock Data generator, CSV/TSV/Markdown/SQL table converter, Full/Half-width + RMB capital + Roman + Morse converter, URL parser/builder, JSON Repair/Flatten/Diff/JSONPath/Schema, string & regex rules, SQL toolkit, Markdown/HTML/BBCode/AsciiDoc, format converters, path, decimal calc, timestamp, Base32/58/85 codecs, radix/bytes, IP/CIDR, color, image, checksums, BLAKE2/Keccak256/RIPEMD160/SM3 hashes, AES/DES/RC4/SM4/XOR, RSA/SM2, JWT, offline HD wallet (BIP39/44), IDs, password, Cron, QR, ASCII art, HTTP/cURL (net:ask), Hosts, notes, Pomodoro, and 12 cheatsheets."
+authors = ["ruyimg"]
+homepage = "https://github.com/RuyimgByCN/openidea-toolset"
+license = "Apache-2.0"
+change-notes = "0.4.0 — Major IDEA Toolset parity release (43 tools, 46 commands): WebSocket Client, TOTP/HOTP 2FA & Base32, X.509/PEM Certificate Inspector, 7-format 1D Barcode Generator, Offline Mock Data Generator, CSV/Table Converter, Full-Width/RMB/Roman/Morse Converter, URL Parser, plus JSON Repair/Flatten/Diff, Base32/Base58/Base85/Binary codecs, and BLAKE2s/BLAKE2b/Keccak-256/RIPEMD-160 hashes."
+categories = ["tools"]
+icon = "icons/toolset.svg"
+icon-dark = "icons/toolset_dark.svg"
+engines.openidea = "^1.14"
+wasm = "dist/plugin.wasm"
+activation = ["on-view:toolset", "on-command:*", "on-event:websocket-ready"]
+
+[capabilities]
+required = ["editor.read", "editor.write", "clipboard", "storage", "events"]
+optional = ["clipboard.read", "net:ask"]
+
+[[contributes.views]]
+id = "toolset"
+title = "Toolset"
+icon = "icons/toolset.svg"
+location = "right"
+secondary = true
+web = "web/index.html"
+header = "none"
+
+[[contributes.searchCategories]]
+id = "tools"
+title = "Toolset"
+
+[[contributes.statusBar]]
+id = "toolset"
+text = "Toolset"
+tooltip = "Toolset — Developer Utilities"
+command = "open"
+align = "right"
+priority = 100
+
+[contributes.settings]
+title = "Toolset"
+schema = "settings.schema.json"
+
+# --- Panel & workflow commands ---
+
+[[contributes.commands]]
+id = "open"
+title = "Toolset: Open Panel"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "open-tool"
+title = "Toolset: Open Tool"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "send-selection"
+title = "Toolset: Send Selection to Tool"
+category = "Toolset"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "apply-regex-rule"
+title = "Toolset: Apply Custom Regex Rule"
+category = "Toolset"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "format-clipboard-json"
+title = "Toolset: Format Clipboard JSON"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "decode-clipboard-qr"
+title = "Toolset: Decode Clipboard QR Code"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "pomodoro-toggle"
+title = "Toolset: Start / Pause Pomodoro"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "pomodoro-reset"
+title = "Toolset: Reset Pomodoro"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "http-send"
+title = "Toolset: Send Active HTTP Request"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "send-to-diff"
+title = "Toolset: Send Selection to Text Diff"
+category = "Toolset"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "send-to-http-curl"
+title = "Toolset: Import Selection as cURL"
+category = "Toolset"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "decode-jwt-selection"
+title = "Toolset: Decode Selected JWT"
+category = "Toolset › Crypto"
+when = "editorFocus"
+
+# --- In-place editor multi-cursor transforms ---
+
+[[contributes.commands]]
+id = "camel-case"
+title = "Toolset: To camelCase"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "pascal-case"
+title = "Toolset: To PascalCase"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "snake-case"
+title = "Toolset: To snake_case"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "screaming-snake-case"
+title = "Toolset: To SCREAMING_SNAKE_CASE"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "kebab-case"
+title = "Toolset: To kebab-case"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "dot-case"
+title = "Toolset: To dot.case"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "upper-case"
+title = "Toolset: To UPPER CASE"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "lower-case"
+title = "Toolset: To lower case"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "swap-quotes"
+title = "Toolset: Swap Quotes (' ↔ \" ↔ `)"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "base64-encode"
+title = "Toolset: Encode Base64"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "base64-decode"
+title = "Toolset: Decode Base64"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "url-encode"
+title = "Toolset: URL-Encode"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "url-decode"
+title = "Toolset: URL-Decode"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "unicode-escape"
+title = "Toolset: Escape Unicode (\\uXXXX)"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "unicode-unescape"
+title = "Toolset: Unescape Unicode (\\uXXXX)"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "json-format"
+title = "Toolset: Format JSON"
+category = "Toolset › Format"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "json-minify"
+title = "Toolset: Minify JSON"
+category = "Toolset › Format"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "sort-lines"
+title = "Toolset: Sort Lines"
+category = "Toolset › Lines"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "unique-lines"
+title = "Toolset: Remove Duplicate Lines"
+category = "Toolset › Lines"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "trim-lines"
+title = "Toolset: Trim Lines"
+category = "Toolset › Lines"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "toggle-case"
+title = "Toolset: Toggle Case (aBc ↔ AbC)"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "title-case"
+title = "Toolset: To Title Case"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "reverse-text"
+title = "Toolset: Reverse Text"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "increment-numbers"
+title = "Toolset: Increment Numbers (+1)"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "decrement-numbers"
+title = "Toolset: Decrement Numbers (-1)"
+category = "Toolset › String"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "remove-empty-lines"
+title = "Toolset: Remove Empty Lines"
+category = "Toolset › Lines"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "merge-multiline-cmd"
+title = "Toolset: Merge Multi-line Command"
+category = "Toolset › Lines"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "convert-path-slash"
+title = "Toolset: Toggle Path Slashes (\\ ↔ /)"
+category = "Toolset › Convert"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "ws-connect"
+title = "Toolset: Connect Active WebSocket"
+category = "Toolset"
+
+[[contributes.commands]]
+id = "json-repair"
+title = "Toolset: Repair Relaxed JSON"
+category = "Toolset › Format"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "fullwidth-to-halfwidth"
+title = "Toolset: Full-Width to Half-Width"
+category = "Toolset › Convert"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "halfwidth-to-fullwidth"
+title = "Toolset: Half-Width to Full-Width"
+category = "Toolset › Convert"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "base58-encode"
+title = "Toolset: Encode Base58"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+[[contributes.commands]]
+id = "base58-decode"
+title = "Toolset: Decode Base58"
+category = "Toolset › Codec"
+when = "editorFocus"
+
+# --- Menus ---
+
+[[contributes.menus]]
+menu = "tools"
+command = "open"
+
+[[contributes.menus]]
+menu = "tools"
+command = "http-send"
+
+[[contributes.menus]]
+menu = "tools"
+command = "ws-connect"
+
+[[contributes.menus]]
+menu = "tools"
+command = "format-clipboard-json"
+
+[[contributes.menus]]
+menu = "tools"
+command = "decode-clipboard-qr"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "send-selection"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "apply-regex-rule"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "camel-case"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "snake-case"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "swap-quotes"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "json-format"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "json-minify"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "base64-encode"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "base64-decode"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "url-encode"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "url-decode"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "unicode-escape"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "unicode-unescape"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "sort-lines"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "unique-lines"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "send-to-diff"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "send-to-http-curl"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "decode-jwt-selection"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "merge-multiline-cmd"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "convert-path-slash"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "increment-numbers"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "decrement-numbers"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "json-repair"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "fullwidth-to-halfwidth"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "halfwidth-to-fullwidth"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "base58-encode"
+submenu = "Toolset"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "base58-decode"
+submenu = "Toolset"
+
+# --- Keymaps ---
+
+[[contributes.keymaps]]
+command = "open"
+key = "Alt+Shift+T"
+mac = "Meta+Shift+T"
+
+[[contributes.keymaps]]
+command = "apply-regex-rule"
+key = "Alt+Shift+R"
+mac = "Meta+Shift+R"
+
+[[contributes.keymaps]]
+command = "http-send"
+key = "Alt+Shift+H"
+mac = "Meta+Shift+H"
+
+[[contributes.keymaps]]
+command = "ws-connect"
+key = "Alt+Shift+W"
+mac = "Meta+Shift+W"

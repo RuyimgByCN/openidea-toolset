@@ -1,0 +1,61 @@
+{
+  "properties": {
+    "language": {
+      "type": "string",
+      "title": "Display language",
+      "description": "Toolset UI language. Use auto to follow OpenIDEA's default UI language.",
+      "enum": ["auto", "zh-CN", "en"],
+      "default": "auto"
+    },
+    "defaultIndent": {
+      "type": "string",
+      "title": "Default indentation",
+      "description": "Indentation used when formatting JSON, XML, SQL, HTML, CSS, and generated code.",
+      "enum": ["2", "4", "tab"],
+      "default": "2"
+    },
+    "defaultTimezone": {
+      "type": "string",
+      "title": "Default timezone",
+      "description": "IANA timezone name used by Timestamp and Cron tools (e.g. Asia/Shanghai, UTC).",
+      "default": "Asia/Shanghai"
+    },
+    "timestampUnit": {
+      "type": "string",
+      "title": "Default timestamp unit",
+      "description": "Default precision for timestamp conversion.",
+      "enum": ["seconds", "milliseconds"],
+      "default": "milliseconds"
+    },
+    "maxHistoryItems": {
+      "type": "integer",
+      "title": "Recent tools / history limit",
+      "description": "Maximum number of recent tools and per-tool history entries kept in storage.",
+      "default": 50
+    },
+    "pomodoroFocusMinutes": {
+      "type": "integer",
+      "title": "Pomodoro focus duration (minutes)",
+      "description": "Length of each focus session in minutes.",
+      "default": 25
+    },
+    "pomodoroBreakMinutes": {
+      "type": "integer",
+      "title": "Pomodoro short break (minutes)",
+      "description": "Length of each short break in minutes.",
+      "default": 5
+    },
+    "pomodoroLongBreakMinutes": {
+      "type": "integer",
+      "title": "Pomodoro long break (minutes)",
+      "description": "Length of a long break after 4 focus sessions.",
+      "default": 15
+    },
+    "restoreLastTabs": {
+      "type": "boolean",
+      "title": "Restore open tool tabs",
+      "description": "Reopen the last workspace tabs when Toolset starts.",
+      "default": true
+    }
+  }
+}

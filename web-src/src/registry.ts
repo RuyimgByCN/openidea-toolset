@@ -1,0 +1,527 @@
+import type { ComponentType, LazyExoticComponent } from "react";
+import { lazy } from "react";
+import type { ToolProps } from "./types";
+
+export type CategoryId = "all" | "string" | "format" | "convert" | "crypto" | "generate" | "network" | "productivity";
+
+export interface CategoryMeta {
+  id: CategoryId;
+  labelEn: string;
+  labelZh: string;
+}
+
+export interface ToolMeta {
+  id: string;
+  category: Exclude<CategoryId, "all">;
+  titleEn: string;
+  titleZh: string;
+  descEn: string;
+  descZh: string;
+  aliases: string[];
+  supportsSelection?: boolean;
+  component: LazyExoticComponent<ComponentType<ToolProps>>;
+}
+
+export const CATEGORIES: CategoryMeta[] = [
+  { id: "all", labelEn: "All (43)", labelZh: "全部 (43)" },
+  { id: "string", labelEn: "String & Text", labelZh: "文本与正则" },
+  { id: "format", labelEn: "Format & SQL", labelZh: "格式与 SQL" },
+  { id: "convert", labelEn: "Convert & Calc", labelZh: "转换与计算" },
+  { id: "crypto", labelEn: "Crypto & Web3", labelZh: "加密与区块链" },
+  { id: "generate", labelEn: "Generators", labelZh: "生成器" },
+  { id: "network", labelEn: "Network & Hosts", labelZh: "网络与 Hosts" },
+  { id: "productivity", labelEn: "Productivity", labelZh: "效率与速查" },
+];
+
+export const TOOL_REGISTRY: ToolMeta[] = [
+  // String & Text (5)
+  {
+    id: "string-case",
+    category: "string",
+    titleEn: "String & Line Manipulation",
+    titleZh: "字符串与行处理",
+    descEn: "Case styles, quotes wrap/swap, multi-line cmd merge, line sort/freq/align/grep/delim, stats",
+    descZh: "命名风格互转、引号包裹/切换、多行命令合并、行排序/词频/对齐/过滤、字数统计",
+    aliases: ["case", "camel", "snake", "pascal", "kebab", "sort", "lines", "string", "word", "merge"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/StringCaseTool")),
+  },
+  {
+    id: "escape",
+    category: "string",
+    titleEn: "Escape / Unescape",
+    titleZh: "多语言转义 / 反转义",
+    descEn: "Escape & unescape Java, JS, JSON, XML, HTML, SQL, PHP, Unicode",
+    descZh: "支持 Java、JS、JSON、XML、HTML、SQL、PHP、Unicode 转义与反转义",
+    aliases: ["escape", "unescape", "unicode", "java", "sql", "xml", "html", "json", "php"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/EscapeTool")),
+  },
+  {
+    id: "regex-tester",
+    category: "string",
+    titleEn: "Regex Tester",
+    titleZh: "正则表达式测试",
+    descEn: "Linear-time regex matching, 20+ presets, saved history, match extractor & replacement preview",
+    descZh: "线性时间正则匹配、20+ 常用预设、历史记录、匹配结果提取与替换预览",
+    aliases: ["regex", "regexp", "match", "capture", "replace", "preset", "zhengze"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/RegexTesterTool")),
+  },
+  {
+    id: "regex-rules",
+    category: "string",
+    titleEn: "Custom Regex Rules",
+    titleZh: "自定义正则替换规则",
+    descEn: "Saved reusable regex find/replace rules for editor & Search Everywhere",
+    descZh: "保存常用正则查找替换规则，支持快捷键与编辑器右键一键应用",
+    aliases: ["rule", "regex", "replace", "macro", "transform"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/RegexRulesTool")),
+  },
+  {
+    id: "text-diff",
+    category: "string",
+    titleEn: "Text Diff",
+    titleZh: "文本比对 (Diff)",
+    descEn: "Compare two texts inline or open directly in OpenIDEA native Diff viewer",
+    descZh: "双栏文本对比，并支持一键打开 OpenIDEA 原生 Diff 编辑器",
+    aliases: ["diff", "compare", "merge", "duibi"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/TextDiffTool")),
+  },
+  // Format & Code (4)
+  {
+    id: "json-tools",
+    category: "format",
+    titleEn: "JSON Toolkit",
+    titleZh: "JSON 工具箱",
+    descEn: "Format, minify, sort keys, tree view, JSONPath query, JSON Schema generator",
+    descZh: "格式化、压缩、排序、树状浏览、JSONPath 查询与 JSON Schema 生成",
+    aliases: ["json", "jsonpath", "schema", "tree", "minify", "format"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/JsonTool")),
+  },
+  {
+    id: "format-convert",
+    category: "format",
+    titleEn: "Format Converter",
+    titleZh: "数据格式互转",
+    descEn: "Convert between JSON, YAML, TOML, XML, Properties, and QueryString",
+    descZh: "JSON、YAML、TOML、XML、Properties 与 QueryString 双向互转",
+    aliases: ["yaml", "toml", "xml", "properties", "querystring", "convert", "json"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/FormatConvertTool")),
+  },
+  {
+    id: "code-format",
+    category: "format",
+    titleEn: "SQL / XML / HTML / CSS Formatter",
+    titleZh: "SQL / XML / HTML / CSS 格式化",
+    descEn: "Pretty-print and minify SQL, XML, HTML, and CSS snippets",
+    descZh: "美化或压缩 SQL、XML、HTML 与 CSS 代码片段",
+    aliases: ["sql", "xml", "html", "css", "format", "minify", "beautify"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/CodeFormatTool")),
+  },
+  {
+    id: "pojo-gen",
+    category: "format",
+    titleEn: "JSON → POJO / Struct",
+    titleZh: "JSON 生成实体类",
+    descEn: "Generate Java POJO/Lombok/Record, TypeScript interface, Go & Rust structs",
+    descZh: "从 JSON 生成 Java POJO/Lombok/Record、TypeScript、Go、Rust 结构体",
+    aliases: ["pojo", "java", "lombok", "record", "typescript", "go", "rust", "struct", "dto"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/PojoGenTool")),
+  },
+  {
+    id: "sql-toolkit",
+    category: "format",
+    titleEn: "SQL Toolkit",
+    titleZh: "SQL 工具箱",
+    descEn: "SQL Joins Venn diagram, CREATE TABLE DDL → JSON/MD/POJO/Struct, qualifier stripper & ? binder",
+    descZh: "SQL Joins 维恩图、DDL 建表转 JSON/Markdown/实体类、限定符清理与 ? 参数绑定",
+    aliases: ["sql", "ddl", "join", "joins", "venn", "mybatis", "binder", "table"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/SqlToolkitTool")),
+  },
+  {
+    id: "markup-convert",
+    category: "format",
+    titleEn: "Markup Converter",
+    titleZh: "文档格式互转 (Markdown)",
+    descEn: "Bidirectional Markdown ↔ HTML ↔ BBCode ↔ AsciiDoc converter with safe live preview",
+    descZh: "Markdown、HTML、BBCode 与 AsciiDoc 双向互转与安全实时预览",
+    aliases: ["markdown", "md", "html", "bbcode", "asciidoc", "adoc", "markup", "wendang"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/MarkupConvertTool")),
+  },
+  // Encode & Convert (6)
+  {
+    id: "timestamp",
+    category: "convert",
+    titleEn: "Timestamp & DateTime",
+    titleZh: "时间戳与日期时间",
+    descEn: "Live clock, Unix s/ms/us/ns converter, timezones, custom patterns & offsets",
+    descZh: "实时时钟、秒/毫秒/微秒/纳秒互转、多时区、自定义格式与时间加减",
+    aliases: ["ts", "timestamp", "unix", "date", "time", "timezone", "shijianchuo"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/TimestampTool")),
+  },
+  {
+    id: "codec",
+    category: "convert",
+    titleEn: "Encoders & Decoders",
+    titleZh: "通用编解码",
+    descEn: "Base64 / Base64URL, URL, Hex, HTML, Unicode, Punycode, ROT13",
+    descZh: "Base64 / URLSafe、URL、Hex、HTML 实体、Unicode、Punycode、ROT13",
+    aliases: ["base64", "b64", "url", "hex", "html", "unicode", "punycode", "rot13"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/CodecTool")),
+  },
+  {
+    id: "radix-bytes",
+    category: "convert",
+    titleEn: "Radix & Byte Units",
+    titleZh: "进制与存储单位换算",
+    descEn: "BigInt base 2/8/10/16/36, Byte..EiB unit converter & network throughput calculator",
+    descZh: "大数 2/8/10/16/36 进制互转、Byte..EiB 存储单位与网络带宽换算",
+    aliases: ["radix", "binary", "hex", "octal", "decimal", "bytes", "kb", "mb", "gb", "pb", "bandwidth"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/RadixBytesTool")),
+  },
+  {
+    id: "path-convert",
+    category: "convert",
+    titleEn: "Path Converter",
+    titleZh: "文件路径格式转换",
+    descEn: "Convert Windows, POSIX/Linux, Git Bash, WSL, file:// URI, escaped paths & batch lines",
+    descZh: "Windows、Linux/POSIX、Git Bash、WSL、file:// URI 与转义路径互转，支持批量转换",
+    aliases: ["path", "windows", "linux", "posix", "wsl", "uri", "slash", "lujing"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/PathConvertTool")),
+  },
+  {
+    id: "calculator",
+    category: "convert",
+    titleEn: "Decimal & Expression Calculator",
+    titleZh: "高精度表达式计算器",
+    descEn: "Exact decimal arithmetic, scientific functions, 0x/0b/0o literals & bitwise calculator",
+    descZh: "无浮点误差十进制计算、科学函数、0x/0b/0o 与位运算高精度表达式求值",
+    aliases: ["calc", "calculator", "decimal", "math", "eval", "bitwise", "expression", "jisuan"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/CalculatorTool")),
+  },
+  {
+    id: "ip-cidr",
+    category: "convert",
+    titleEn: "IP & CIDR Calculator",
+    titleZh: "IP 与 CIDR 子网计算",
+    descEn: "IPv4 integer/hex/binary conversion, IPv6 expand/compress, CIDR subnetting",
+    descZh: "IPv4 整数/二进制互转、IPv6 压缩展开、CIDR 掩码与可用主机范围计算",
+    aliases: ["ip", "ipv4", "ipv6", "cidr", "subnet", "netmask"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/IpCidrTool")),
+  },
+  {
+    id: "color",
+    category: "convert",
+    titleEn: "Color & Contrast",
+    titleZh: "颜色转换与对比度",
+    descEn: "HEX / RGB / HSL / HSV / CMYK converter, picker & WCAG contrast checker",
+    descZh: "HEX / RGB / HSL / HSV / CMYK 互转、取色器与 WCAG 对比度检测",
+    aliases: ["color", "hex", "rgb", "hsl", "cmyk", "wcag", "yanse"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/ColorTool")),
+  },
+  {
+    id: "image-convert",
+    category: "convert",
+    titleEn: "Image Converter & Base64",
+    titleZh: "图片格式转换与 Base64",
+    descEn: "Convert PNG / JPEG / WebP / SVG, resize & inspect Data URL / Base64",
+    descZh: "PNG / JPEG / WebP / SVG 格式互转、缩放与 Data URL / Base64 互转",
+    aliases: ["image", "png", "jpeg", "webp", "svg", "base64", "picture", "tupian"],
+    component: lazy(() => import("./tools/ImageConvertTool")),
+  },
+  // Crypto & Security (4)
+  {
+    id: "hash",
+    category: "crypto",
+    titleEn: "Hash & HMAC",
+    titleZh: "哈希与 HMAC 摘要",
+    descEn: "MD5, SHA-1/224/256/384/512, CRC32, SM3 & keyed HMAC",
+    descZh: "MD5、SHA-1/224/256/384/512、CRC32、国密 SM3 与 HMAC 计算",
+    aliases: ["hash", "md5", "sha1", "sha256", "sha512", "sm3", "hmac", "crc32"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/HashTool")),
+  },
+  {
+    id: "symmetric",
+    category: "crypto",
+    titleEn: "Symmetric Encryption",
+    titleZh: "对称加解密",
+    descEn: "AES (CBC/ECB/CTR/GCM), DES/3DES, RC4, SM4 (CBC/ECB/CTR/GCM), XOR",
+    descZh: "AES、DES/3DES、RC4、国密 SM4 (CBC/ECB/CTR/GCM) 与 XOR 加解密",
+    aliases: ["aes", "sm4", "des", "3des", "rc4", "xor", "cbc", "gcm", "ecb", "ctr", "cipher"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/SymmetricTool")),
+  },
+  {
+    id: "asymmetric",
+    category: "crypto",
+    titleEn: "RSA & SM2 Asymmetric",
+    titleZh: "RSA 与国密 SM2 非对称",
+    descEn: "RSA & SM2 keypair generation, encryption/decryption, signing & verification",
+    descZh: "RSA 与国密 SM2 密钥对生成、加解密、数字签名与验签",
+    aliases: ["rsa", "sm2", "pem", "keypair", "sign", "verify", "encrypt"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/AsymmetricTool")),
+  },
+  {
+    id: "jwt",
+    category: "crypto",
+    titleEn: "JWT Inspector & Signer",
+    titleZh: "JWT 解析与签发验证",
+    descEn: "Decode JWT claims/timestamps, verify & sign HS256/384/512 & RS256",
+    descZh: "解码 JWT Header/Payload 与过期时间，支持 HS256/384/512 与 RS256 签发验签",
+    aliases: ["jwt", "token", "hs256", "rs256", "bearer", "jws"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/JwtTool")),
+  },
+  {
+    id: "file-verify",
+    category: "crypto",
+    titleEn: "File Checksum & Verification",
+    titleZh: "文件校验与比对",
+    descEn: "Compute local file MD5/SHA/SM3/CRC32 digests, verify checksums & compare two files",
+    descZh: "本地文件 MD5/SHA/SM3/CRC32 摘要计算、期望值自动校验与双文件比对",
+    aliases: ["file", "checksum", "verify", "verification", "digest", "compare", "jiaoyan"],
+    component: lazy(() => import("./tools/FileVerifyTool")),
+  },
+  {
+    id: "blockchain",
+    category: "crypto",
+    titleEn: "Blockchain & HD Wallet (Offline)",
+    titleZh: "区块链与 HD 钱包 (离线)",
+    descEn: "Offline BIP-39 mnemonic, BIP-32/44 derivation (ETH/BTC/TRON/SOL/SUI), EIP-191/Ed25519 sign/verify & units",
+    descZh: "纯离线 BIP-39 助记词、BIP-32/44 多链派生 (ETH/BTC/TRON/SOL/SUI)、签名验签与单位换算",
+    aliases: ["blockchain", "wallet", "bip39", "bip32", "bip44", "mnemonic", "eth", "btc", "tron", "sol", "sui", "web3"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/BlockchainTool")),
+  },
+  // Generators (5)
+  {
+    id: "id-gen",
+    category: "generate",
+    titleEn: "ID Generator & Decoder",
+    titleZh: "分布式 ID 生成与解析",
+    descEn: "UUID v1/v4/v7, ULID, NanoID, Snowflake & MongoDB ObjectId generate/decode",
+    descZh: "UUID v1/v4/v7、ULID、NanoID、雪花 ID 与 MongoDB ObjectId 生成与反解",
+    aliases: ["uuid", "ulid", "nanoid", "snowflake", "objectid", "id", "guid"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/IdGenTool")),
+  },
+  {
+    id: "password-gen",
+    category: "generate",
+    titleEn: "Password & Secret Generator",
+    titleZh: "随机密码与密钥生成",
+    descEn: "Cryptographic passwords, passphrases, API keys & entropy strength meter",
+    descZh: "密码学安全随机密码、词组密码、API 密钥生成与熵值强度评估",
+    aliases: ["password", "pwd", "secret", "random", "entropy", "mima"],
+    component: lazy(() => import("./tools/PasswordGenTool")),
+  },
+  {
+    id: "cron",
+    category: "generate",
+    titleEn: "Cron Parser & Schedule",
+    titleZh: "Cron 表达式解析与预览",
+    descEn: "Unix / Spring / Quartz Cron human description & next execution times",
+    descZh: "支持 Unix / Spring / Quartz 方言的中英文释义与未来执行时间计算",
+    aliases: ["cron", "crontab", "quartz", "spring", "schedule"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/CronTool")),
+  },
+  {
+    id: "qrcode",
+    category: "generate",
+    titleEn: "QR Code Generator & Scanner",
+    titleZh: "二维码生成与识别",
+    descEn: "Generate SVG/PNG QR codes and decode QR images from files or clipboard",
+    descZh: "生成 SVG/PNG 二维码，支持从图片文件或剪贴板截图离线识别",
+    aliases: ["qr", "qrcode", "barcode", "scan", "erweima"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/QrCodeTool")),
+  },
+  {
+    id: "ascii-art",
+    category: "generate",
+    titleEn: "ASCII Art / FIGlet",
+    titleZh: "ASCII 艺术字 (FIGlet)",
+    descEn: "10 FIGlet fonts (Standard, Big, Slant, Shadow, Doom, Banner, Small, Mini, Block, Bubble) & comment banners",
+    descZh: "10 种 FIGlet 字体 ASCII 艺术字与代码注释包装输出",
+    aliases: ["ascii", "figlet", "banner", "art"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/AsciiArtTool")),
+  },
+  // Network & Hosts (2)
+  {
+    id: "http-client",
+    category: "network",
+    titleEn: "HTTP Client & cURL",
+    titleZh: "HTTP 请求调试与 cURL",
+    descEn: "Multi-tab HTTP request builder, URL/query sync, cURL import/export & live fetch via opt-in net:ask",
+    descZh: "多标签 HTTP 请求构建、参数同步、cURL 导入导出与可选 net:ask 实时请求测试",
+    aliases: ["http", "rest", "api", "curl", "fetch", "httpie", "request", "postman", "network"],
+    supportsSelection: true,
+    component: lazy(() => import("./tools/HttpClientTool")),
+  },
+  {
+    id: "hosts-manager",
+    category: "network",
+    titleEn: "Hosts Profile Manager",
+    titleZh: "Hosts 分组管理 (SwitchHosts)",
+    descEn: "SwitchHosts-style multi-profile grouping, IP/host validation, conflict detection & export",
+    descZh: "SwitchHosts 风格多分组开关管理、IP/域名校验、冲突检测与 hosts 导出",
+    aliases: ["hosts", "switchhosts", "dns", "etc", "profile", "domain"],
+    component: lazy(() => import("./tools/HostsManagerTool")),
+  },
+  // Productivity & Reference (3)
+  {
+    id: "notes",
+    category: "productivity",
+    titleEn: "Scratch Notes",
+    titleZh: "多标签便签 (Notes)",
+    descEn: "Persistent scratchpad notes with Markdown preview & editor export",
+    descZh: "持久化多标签草稿便签，支持 Markdown 预览与打开为编辑器标签页",
+    aliases: ["note", "notes", "scratch", "memo", "markdown", "bianqian"],
+    component: lazy(() => import("./tools/NotesTool")),
+  },
+  {
+    id: "pomodoro",
+    category: "productivity",
+    titleEn: "Pomodoro Timer",
+    titleZh: "番茄钟专注计时",
+    descEn: "Focus & break timer synchronized with the IDE status bar & notifications",
+    descZh: "与状态栏和系统通知联动的番茄工作法专注计时器",
+    aliases: ["pomodoro", "timer", "focus", "tomato", "fanqie"],
+    component: lazy(() => import("./tools/PomodoroTool")),
+  },
+  {
+    id: "cheatsheet",
+    category: "productivity",
+    titleEn: "Developer Cheatsheets",
+    titleZh: "开发者速查表",
+    descEn: "12 searchable developer cheatsheets (Git, Docker, K8s, Linux, SQL, HTTP, Regex, Cron...) + Chmod calculator",
+    descZh: "12 大类可搜索开发者速查表（Git/Docker/K8s/Linux/SQL/HTTP/正则等）与 Chmod 权限计算器",
+    aliases: ["cheatsheet", "http", "status", "ascii", "regex", "git", "docker", "k8s", "linux", "chmod", "reference"],
+    component: lazy(() => import("./tools/CheatsheetTool")),
+  },
+  {
+    id: "csv-table",
+    category: "format",
+    titleEn: "CSV / Table Converter",
+    titleZh: "CSV / 表格转换器",
+    descEn: "Parse & preview CSV/TSV/JSON tables, transpose columns/rows, export JSON, Markdown, SQL INSERT, HTML & Excel BOM CSV",
+    descZh: "解析预览 CSV/TSV/JSON 表格，支持行列转置并导出为 JSON、Markdown、SQL INSERT、HTML 与带 BOM 的 Excel CSV",
+    aliases: ["csv", "tsv", "table", "excel", "markdown", "sql", "transpose", "biaoge"],
+    component: lazy(() => import("./tools/CsvTableTool")),
+  },
+  {
+    id: "text-convert",
+    category: "convert",
+    titleEn: "Text & Numeral Converter",
+    titleZh: "文本 / 全半角 / 人民币大写",
+    descEn: "Full/half-width text, Chinese RMB financial uppercase (人民币大写), Roman numerals, and Morse code",
+    descZh: "全角/半角文字转换、数字转中文人民币财务大写、阿拉伯/罗马数字互转及摩尔斯电码",
+    aliases: ["fullwidth", "halfwidth", "rmb", "currency", "roman", "morse", "cjk", "width", "quanjiao", "daxie"],
+    component: lazy(() => import("./tools/TextConvertTool")),
+  },
+  {
+    id: "totp",
+    category: "crypto",
+    titleEn: "TOTP / HOTP 2FA",
+    titleZh: "TOTP / HOTP 两步验证",
+    descEn: "RFC 6238/4226 2FA code generator with live countdown, Base32 secret generator, otpauth:// parser & QR",
+    descZh: "RFC 6238/4226 两步验证码实时倒计时生成、Base32 密钥生成、otpauth:// 解析与扫码二维码",
+    aliases: ["totp", "hotp", "2fa", "mfa", "otp", "authenticator", "otpauth", "secret", "base32", "lingpai"],
+    component: lazy(() => import("./tools/TotpTool")),
+  },
+  {
+    id: "cert-inspector",
+    category: "crypto",
+    titleEn: "X.509 Certificate Inspector",
+    titleZh: "X.509 证书解析器",
+    descEn: "Pure-Rust offline ASN.1 DER / PEM certificate parser for Subject, Issuer, SANs, Validity, Key size & SHA fingerprints",
+    descZh: "离线纯 Rust ASN.1 DER / PEM 证书解析器：查看 Subject、Issuer、SAN 域名、有效期与 SHA 指纹",
+    aliases: ["cert", "x509", "ssl", "tls", "pem", "der", "asn1", "certificate", "zhengshu"],
+    component: lazy(() => import("./tools/CertInspectorTool")),
+  },
+  {
+    id: "barcode",
+    category: "generate",
+    titleEn: "1D Barcode Generator",
+    titleZh: "一维条形码生成器",
+    descEn: "Generate Code 128, Code 39, EAN-13, EAN-8, UPC-A, ITF & Codabar barcodes in single or batch mode, export SVG/PNG",
+    descZh: "支持 Code 128、Code 39、EAN-13、EAN-8、UPC-A、ITF、Codabar 单条/批量生成并导出 SVG/PNG",
+    aliases: ["barcode", "ean", "code128", "code39", "ean13", "ean8", "upca", "upc", "itf", "codabar", "tiaoxingma"],
+    component: lazy(() => import("./tools/BarcodeTool")),
+  },
+  {
+    id: "mock-data",
+    category: "generate",
+    titleEn: "Mock Data Generator",
+    titleZh: "Mock 测试数据生成",
+    descEn: "Offline schema-driven mock dataset generator (EN/ZH names, emails, phones, UUID, IP, enum) to JSON/CSV/SQL/Markdown",
+    descZh: "离线按字段 Schema 批量生成中英文姓名、邮箱、手机、UUID、IP、枚举等测试数据并导出 JSON/CSV/SQL",
+    aliases: ["mock", "fake", "faker", "seed", "dataset", "sql", "json", "test-data", "shuju"],
+    component: lazy(() => import("./tools/MockDataTool")),
+  },
+  {
+    id: "websocket-client",
+    category: "network",
+    titleEn: "WebSocket Client",
+    titleZh: "WebSocket 客户端",
+    descEn: "Persistent host WebSocket debugger with custom headers, subprotocol, heartbeat timer, JSON/Hex frames & message log",
+    descZh: "宿主原生持久化 WebSocket 调试客户端，支持自定义请求头、子协议、定时心跳、JSON/Hex 收发与日志过滤",
+    aliases: ["websocket", "ws", "wss", "socket", "stream", "heartbeat", "realtime"],
+    component: lazy(() => import("./tools/WebSocketClientTool")),
+  },
+  {
+    id: "url-parser",
+    category: "network",
+    titleEn: "URL Parser & Query Builder",
+    titleZh: "URL 解析与 Query 构建器",
+    descEn: "Parse protocol, auth, host, port, path, hash & edit query parameters interactively with live URL reconstruction",
+    descZh: "拆解协议、认证信息、域名、端口、路径与锚点，支持可视增删改 Query 参数并实时重组 URL",
+    aliases: ["url", "uri", "query", "querystring", "params", "parser", "builder", "link"],
+    component: lazy(() => import("./tools/UrlParserTool")),
+  },
+];
+
+export function findToolMeta(id: string): ToolMeta | undefined {
+  return TOOL_REGISTRY.find((t) => t.id === id);
+}
+
+export function searchTools(query: string): ToolMeta[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return TOOL_REGISTRY;
+  const scored: Array<{ score: number; tool: ToolMeta }> = [];
+  for (const tool of TOOL_REGISTRY) {
+    const id = tool.id.toLowerCase();
+    const en = tool.titleEn.toLowerCase();
+    const zh = tool.titleZh.toLowerCase();
+    let score = 0;
+    if (id === q || tool.aliases.includes(q)) score = 1000;
+    else if (id.startsWith(q) || en.startsWith(q) || zh.startsWith(q)) score = 800;
+    else if (tool.aliases.some((a) => a.startsWith(q))) score = 700;
+    else if (id.includes(q) || en.includes(q) || zh.includes(q)) score = 500;
+    else if (tool.aliases.some((a) => a.includes(q))) score = 400;
+    else if (tool.descEn.toLowerCase().includes(q) || tool.descZh.toLowerCase().includes(q)) score = 200;
+    if (score > 0) scored.push({ score, tool });
+  }
+  scored.sort((a, b) => b.score - a.score || a.tool.titleEn.localeCompare(b.tool.titleEn));
+  return scored.map((s) => s.tool);
+}
