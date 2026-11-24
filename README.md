@@ -1,4 +1,4 @@
-# Toolset for OpenIDEA (v0.4.0)
+# Toolset for OpenIDEA (v0.4.1)
 
 An all-in-one, **43-tool** developer toolbox for [OpenIDEA](https://github.com/l0ng-ai/openidea), aligned with JetBrains IntelliJ Toolset (`#14384`). It features a collapsible toolset sidebar docked in the **Right Bottom** (`secondary = true`), native English / Simplified Chinese UI (auto-synced with OpenIDEA's locale or switched independently), editor selection integration, native Diff viewer tabs, Search Everywhere registration, status bar toggle, and multi-tab workspace persistence.
 

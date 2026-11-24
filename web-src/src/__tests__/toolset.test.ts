@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { BridgeClient } from "../bridge";
 import { isZhLocale, tx } from "../i18n";
 import { CATEGORIES, searchTools, TOOL_REGISTRY } from "../registry";
+import { COMMAND_SHEETS, HTTP_CODES } from "../tools/CheatsheetTool";
 import { eanCheckDigit, encodeBarcode, renderBarcodeSvg } from "../utils/barcode";
 import { computeLineDiff, convertBandwidth, convertByteUnits, convertRadix } from "../utils/math";
 
@@ -145,9 +146,9 @@ describe("Localization, manifest placement, and language setting", () => {
     expect(tx("en-US", "Copy", "复制")).toBe("Copy");
   });
 
-  it("declares secondary = true (Right Bottom), events capability, and version 0.4.0 in plugin.toml", () => {
+  it("declares secondary = true (Right Bottom), events capability, and version 0.4.1 in plugin.toml", () => {
     const manifest = fs.readFileSync(path.resolve(import.meta.dirname, "../../../plugin.toml"), "utf8");
-    expect(manifest).toMatch(/version\s*=\s*"0\.4\.0"/);
+    expect(manifest).toMatch(/version\s*=\s*"0\.4\.1"/);
     expect(manifest).toMatch(/location\s*=\s*"right"\s*\nsecondary\s*=\s*true/);
     expect(manifest).toContain('"events"');
     expect(manifest).toContain('"on-event:websocket-ready"');
@@ -159,5 +160,28 @@ describe("Localization, manifest placement, and language setting", () => {
     ) as { properties: { language: { default: string; enum: string[] } } };
     expect(schema.properties.language.default).toBe("auto");
     expect(schema.properties.language.enum).toEqual(["auto", "zh-CN", "en"]);
+  });
+
+  it("localizes every command sheet entry and HTTP status description in English and Chinese", () => {
+    const sheets = Object.values(COMMAND_SHEETS);
+    expect(sheets).toHaveLength(10);
+    for (const entries of sheets) {
+      expect(entries.length).toBeGreaterThan(0);
+      for (const item of entries) {
+        expect(item.cmd.trim().length).toBeGreaterThan(0);
+        expect(item.descEn.trim().length).toBeGreaterThan(0);
+        expect(item.descZh.trim().length).toBeGreaterThan(0);
+        expect(item.descZh).not.toBe(item.descEn);
+        expect(item.descZh).toMatch(/[\u4e00-\u9fff]/);
+      }
+    }
+    expect(HTTP_CODES.length).toBeGreaterThan(0);
+    for (const [code, phrase, meaningEn, meaningZh] of HTTP_CODES) {
+      expect(code).toMatch(/^\d{3}$/);
+      expect(phrase.trim().length).toBeGreaterThan(0);
+      expect(meaningEn.trim().length).toBeGreaterThan(0);
+      expect(meaningZh.trim().length).toBeGreaterThan(0);
+      expect(meaningZh).toMatch(/[\u4e00-\u9fff]/);
+    }
   });
 });
