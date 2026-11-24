@@ -1,4 +1,4 @@
-# Toolset for OpenIDEA (v0.4.1)
+# Toolset for OpenIDEA (v0.4.2)
 
 An all-in-one, **43-tool** developer toolbox for [OpenIDEA](https://github.com/l0ng-ai/openidea), aligned with JetBrains IntelliJ Toolset (`#14384`). It features a collapsible toolset sidebar docked in the **Right Bottom** (`secondary = true`), native English / Simplified Chinese UI (auto-synced with OpenIDEA's locale or switched independently), editor selection integration, native Diff viewer tabs, Search Everywhere registration, status bar toggle, and multi-tab workspace persistence.
 
@@ -44,7 +44,7 @@ An all-in-one, **43-tool** developer toolbox for [OpenIDEA](https://github.com/l
 | `clipboard.read` | optional (medium) | Power "Format Clipboard JSON" and "Decode Clipboard QR Code" commands. |
 | `net:ask` | optional (medium) | Prompt per HTTPS / WSS / loopback host when using the HTTP Client or WebSocket Client. |
 
-Toolset requests **no** `net.http:*`, `process:*`, `fs.read:*`, `fs.write:*`, `project.*`, or `ide.commands` permissions. Direct `/etc/hosts` root editing and local TCP listen/tunnel servers are intentionally excluded to stay strictly sandboxed with zero high-risk permissions.
+Toolset requests **no** `net.http:*`, `process:*`, `fs.read:*`, `fs.write:*`, `project.*`, or `ide.commands` permissions. Direct `/etc/hosts` root editing and local TCP listen/tunnel servers are intentionally excluded to stay strictly sandboxed with zero high-risk permissions. Wallet mnemonics, BIP-39 passphrases, private keys, TOTP/JWT/symmetric/HMAC secrets, URL passwords, and sensitive auth headers (`Authorization`, `Cookie`, `X-API-Key`, etc.) remain in memory only and are never written to plugin storage (and any previously saved fields from earlier versions are scrubbed on startup).
 
 ## Building & Validating
 

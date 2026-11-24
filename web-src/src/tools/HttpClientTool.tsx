@@ -37,6 +37,20 @@ function applyQueryRows(urlStr: string, rows: KvRow[]): string {
   return `${base}?${qs}`;
 }
 
+const SENSITIVE_HEADER_KEYS = new Set([
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "api-key",
+  "x-auth-token",
+]);
+
+function isSensitiveHeaderKey(key: string): boolean {
+  return SENSITIVE_HEADER_KEYS.has(key.trim().toLowerCase());
+}
+
 export default function HttpClientTool({
   tabId,
   locale,
@@ -45,25 +59,33 @@ export default function HttpClientTool({
   httpPushResponse,
   onConsumeHttpPush,
 }: ToolProps) {
-  const [saved, setSaved] = useToolState(`http-${tabId}`, {
-    method: "GET",
-    url: "https://httpbin.org/get?source=openidea",
-    headers: [
-      { enabled: true, key: "Accept", value: "application/json" },
-      { enabled: true, key: "User-Agent", value: "OpenIDEA-Toolset/0.2.0" },
-    ] as KvRow[],
-    authKind: "none" as "none" | "bearer" | "basic" | "apikey",
-    authToken: "",
-    authUser: "",
-    authPass: "",
-    apiKeyName: "X-API-Key",
-    bodyKind: "none" as "none" | "json" | "raw",
-    body: '{\n  "hello": "openidea"\n}',
-    reqTab: "params" as "params" | "headers" | "auth" | "body" | "curl" | "export",
-    exportFmt: "curl",
-    curlImport: "",
-  });
+  const [saved, setSaved] = useToolState(
+    `http-${tabId}`,
+    {
+      method: "GET",
+      url: "https://httpbin.org/get?source=openidea",
+      headers: [
+        { enabled: true, key: "Accept", value: "application/json" },
+        { enabled: true, key: "User-Agent", value: "OpenIDEA-Toolset/0.2.0" },
+      ] as KvRow[],
+      authKind: "none" as "none" | "bearer" | "basic" | "apikey",
+      authUser: "",
+      apiKeyName: "X-API-Key",
+      bodyKind: "none" as "none" | "json" | "raw",
+      body: '{\n  "hello": "openidea"\n}',
+      reqTab: "params" as "params" | "headers" | "auth" | "body" | "curl" | "export",
+      exportFmt: "curl",
+    },
+    (state) => ({
+      ...state,
+      headers: state.headers.filter((h) => !isSensitiveHeaderKey(h.key)),
+    }),
+  );
 
+  // Keep auth credentials and raw cURL imports strictly in memory; never persist to disk.
+  const [authToken, setAuthToken] = useState("");
+  const [authPass, setAuthPass] = useState("");
+  const [curlImport, setCurlImport] = useState("");
   const [sending, setSending] = useState(false);
   const [resp, setResp] = useState<RespData | null>(null);
   const [respTab, setRespTab] = useState<"pretty" | "raw" | "headers">("pretty");
@@ -76,12 +98,12 @@ export default function HttpClientTool({
       .filter((h) => h.enabled && h.key.trim())
       .map((h) => [h.key.trim(), h.value]);
 
-    if (saved.authKind === "bearer" && saved.authToken) {
-      hdrs.push(["Authorization", `Bearer ${saved.authToken}`]);
-    } else if (saved.authKind === "basic" && (saved.authUser || saved.authPass)) {
-      hdrs.push(["Authorization", `Basic ${btoa(`${saved.authUser}:${saved.authPass}`)}`]);
-    } else if (saved.authKind === "apikey" && saved.apiKeyName && saved.authToken) {
-      hdrs.push([saved.apiKeyName, saved.authToken]);
+    if (saved.authKind === "bearer" && authToken) {
+      hdrs.push(["Authorization", `Bearer ${authToken}`]);
+    } else if (saved.authKind === "basic" && (saved.authUser || authPass)) {
+      hdrs.push(["Authorization", `Basic ${btoa(`${saved.authUser}:${authPass}`)}`]);
+    } else if (saved.authKind === "apikey" && saved.apiKeyName && authToken) {
+      hdrs.push([saved.apiKeyName, authToken]);
     }
     if (saved.bodyKind === "json" && !hdrs.some(([k]) => k.toLowerCase() === "content-type")) {
       hdrs.push(["Content-Type", "application/json"]);
@@ -101,6 +123,7 @@ export default function HttpClientTool({
     if (initialInput != null) {
       const txt = initialInput.trim();
       if (txt.toLowerCase().startsWith("curl ")) {
+        setCurlImport(txt);
         bridge
           .rpc<{ method: string; url: string; headers: Array<[string, string]>; body: string }>("http.parseCurl", { cmd: txt })
           .then((parsed) => {
@@ -111,11 +134,10 @@ export default function HttpClientTool({
               headers: parsed.headers.map(([key, value]) => ({ enabled: true, key, value })),
               bodyKind: parsed.body ? "json" : "none",
               body: parsed.body || p.body,
-              curlImport: txt,
             }));
           })
           .catch(() => {
-            setSaved((p) => ({ ...p, curlImport: txt, reqTab: "curl" }));
+            setSaved((p) => ({ ...p, reqTab: "curl" }));
           });
       } else if (txt.startsWith("http://") || txt.startsWith("https://")) {
         setSaved((p) => ({ ...p, url: txt }));
@@ -144,7 +166,7 @@ export default function HttpClientTool({
       bridge.rpc("http.setActive", buildPayload()).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
-  }, [saved.method, saved.url, saved.headers, saved.authKind, saved.authToken, saved.authUser, saved.authPass, saved.apiKeyName, saved.bodyKind, saved.body, tabId]);
+  }, [saved.method, saved.url, saved.headers, saved.authKind, authToken, saved.authUser, authPass, saved.apiKeyName, saved.bodyKind, saved.body, tabId]);
 
   useEffect(() => {
     if (!bridge.isHosted || saved.reqTab !== "export") return;
@@ -159,7 +181,7 @@ export default function HttpClientTool({
       })
       .then((r) => setExportedCode(r.result))
       .catch(() => {});
-  }, [saved.reqTab, saved.exportFmt, saved.method, saved.url, saved.headers, saved.authKind, saved.authToken, saved.authUser, saved.authPass, saved.apiKeyName, saved.bodyKind, saved.body]);
+  }, [saved.reqTab, saved.exportFmt, saved.method, saved.url, saved.headers, saved.authKind, authToken, saved.authUser, authPass, saved.apiKeyName, saved.bodyKind, saved.body]);
 
   const sendNow = async () => {
     setErr(null);
@@ -184,7 +206,7 @@ export default function HttpClientTool({
     setErr(null);
     try {
       const parsed = await bridge.rpc<{ method: string; url: string; headers: Array<[string, string]>; body: string }>("http.parseCurl", {
-        cmd: saved.curlImport,
+        cmd: curlImport,
       });
       setSaved((p) => ({
         ...p,
@@ -375,18 +397,18 @@ export default function HttpClientTool({
             <option value="apikey">{tx(locale, "API Key Header", "API Key 请求头")}</option>
           </select>
           {saved.authKind === "bearer" && (
-            <input className="ts-input mono" value={saved.authToken} onChange={(e) => setSaved((p) => ({ ...p, authToken: e.target.value }))} placeholder={tx(locale, "Token", "Bearer 令牌")} />
+            <input className="ts-input mono" value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={tx(locale, "Token", "Bearer 令牌")} />
           )}
           {saved.authKind === "basic" && (
             <div className="ts-row">
               <input className="ts-input mono" style={{ flex: 1 }} value={saved.authUser} onChange={(e) => setSaved((p) => ({ ...p, authUser: e.target.value }))} placeholder={tx(locale, "Username", "用户名")} />
-              <input type="password" className="ts-input mono" style={{ flex: 1 }} value={saved.authPass} onChange={(e) => setSaved((p) => ({ ...p, authPass: e.target.value }))} placeholder={tx(locale, "Password", "密码")} />
+              <input type="password" className="ts-input mono" style={{ flex: 1 }} value={authPass} onChange={(e) => setAuthPass(e.target.value)} placeholder={tx(locale, "Password", "密码")} />
             </div>
           )}
           {saved.authKind === "apikey" && (
             <div className="ts-row">
               <input className="ts-input mono" style={{ width: 140 }} value={saved.apiKeyName} onChange={(e) => setSaved((p) => ({ ...p, apiKeyName: e.target.value }))} placeholder="X-API-Key" />
-              <input className="ts-input mono" style={{ flex: 1 }} value={saved.authToken} onChange={(e) => setSaved((p) => ({ ...p, authToken: e.target.value }))} placeholder={tx(locale, "Key value", "密钥值")} />
+              <input className="ts-input mono" style={{ flex: 1 }} value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={tx(locale, "Key value", "密钥值")} />
             </div>
           )}
         </div>
@@ -412,8 +434,8 @@ export default function HttpClientTool({
           <textarea
             className="ts-textarea mono"
             rows={4}
-            value={saved.curlImport}
-            onChange={(e) => setSaved((p) => ({ ...p, curlImport: e.target.value }))}
+            value={curlImport}
+            onChange={(e) => setCurlImport(e.target.value)}
             placeholder="curl -X POST https://api.example.com/v1 -H 'Authorization: Bearer ...' -d '{...}'"
           />
           <button type="button" className="ts-btn primary" onClick={importCurl}>

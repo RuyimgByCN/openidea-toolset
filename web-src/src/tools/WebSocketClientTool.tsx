@@ -42,7 +42,6 @@ export default function WebSocketClientTool({
   const [saved, setSaved] = useToolState(`ws-${tabId}`, {
     url: "wss://echo.websocket.org",
     subprotocol: "",
-    headers: [{ id: "h1", key: "", value: "", enabled: true }] as HeaderRow[],
     message: '{\n  "type": "ping",\n  "ts": 1\n}',
     sendMode: "json" as "text" | "json" | "hex",
     heartbeatEnabled: false,
@@ -51,6 +50,8 @@ export default function WebSocketClientTool({
     logFilter: "all" as "all" | "in" | "out" | "sys",
     showHex: false,
   });
+  // Keep custom handshake headers in memory only; never persist potentially sensitive auth headers.
+  const [headers, setHeaders] = useState<HeaderRow[]>([{ id: "h1", key: "", value: "", enabled: true }]);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [logs, setLogs] = useState<WsLogEntry[]>([]);
@@ -60,10 +61,10 @@ export default function WebSocketClientTool({
 
   const enabledHeaders = useMemo(
     () =>
-      saved.headers
+      headers
         .filter((h) => h.enabled && h.key.trim())
         .map((h) => [h.key.trim(), h.value] as [string, string]),
-    [saved.headers],
+    [headers],
   );
 
   const appendLog = (entry: Omit<WsLogEntry, "id" | "time">) => {
@@ -331,27 +332,19 @@ export default function WebSocketClientTool({
           <button
             type="button"
             className="ts-btn sm"
-            onClick={() =>
-              setSaved((p) => ({
-                ...p,
-                headers: [...p.headers, { id: newRowId(), key: "", value: "", enabled: true }],
-              }))
-            }
+            onClick={() => setHeaders((prev) => [...prev, { id: newRowId(), key: "", value: "", enabled: true }])}
           >
             {tx(locale, "+ Add Header", "+ 添加请求头")}
           </button>
         </div>
         <div className="ts-col" style={{ gap: 4 }}>
-          {saved.headers.map((h) => (
+          {headers.map((h) => (
             <div key={h.id} className="ts-row">
               <input
                 type="checkbox"
                 checked={h.enabled}
                 onChange={(e) =>
-                  setSaved((p) => ({
-                    ...p,
-                    headers: p.headers.map((x) => (x.id === h.id ? { ...x, enabled: e.target.checked } : x)),
-                  }))
+                  setHeaders((prev) => prev.map((x) => (x.id === h.id ? { ...x, enabled: e.target.checked } : x)))
                 }
               />
               <input
@@ -359,10 +352,7 @@ export default function WebSocketClientTool({
                 style={{ flex: 1 }}
                 value={h.key}
                 onChange={(e) =>
-                  setSaved((p) => ({
-                    ...p,
-                    headers: p.headers.map((x) => (x.id === h.id ? { ...x, key: e.target.value } : x)),
-                  }))
+                  setHeaders((prev) => prev.map((x) => (x.id === h.id ? { ...x, key: e.target.value } : x)))
                 }
                 placeholder={tx(locale, "Header name", "请求头名称")}
               />
@@ -371,10 +361,7 @@ export default function WebSocketClientTool({
                 style={{ flex: 1 }}
                 value={h.value}
                 onChange={(e) =>
-                  setSaved((p) => ({
-                    ...p,
-                    headers: p.headers.map((x) => (x.id === h.id ? { ...x, value: e.target.value } : x)),
-                  }))
+                  setHeaders((prev) => prev.map((x) => (x.id === h.id ? { ...x, value: e.target.value } : x)))
                 }
                 placeholder={tx(locale, "Value", "请求头值")}
               />
@@ -382,10 +369,7 @@ export default function WebSocketClientTool({
                 type="button"
                 className="ts-btn sm"
                 onClick={() =>
-                  setSaved((p) => ({
-                    ...p,
-                    headers: p.headers.length > 1 ? p.headers.filter((x) => x.id !== h.id) : p.headers,
-                  }))
+                  setHeaders((prev) => (prev.length > 1 ? prev.filter((x) => x.id !== h.id) : prev))
                 }
               >
                 ×

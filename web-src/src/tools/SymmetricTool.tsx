@@ -10,14 +10,14 @@ export default function SymmetricTool({ locale, initialInput, onConsumeInitial }
     alg: "aes-128",
     mode: "cbc",
     padding: "pkcs7",
-    key: "0123456789abcdef",
     keyEncoding: "utf8",
-    iv: "fedcba9876543210",
     ivEncoding: "utf8",
     inputEncoding: "utf8",
     outputEncoding: "base64",
     input: "Hello Symmetric Cipher",
   });
+  const [key, setKey] = useState("0123456789abcdef");
+  const [iv, setIv] = useState("fedcba9876543210");
   const [output, setOutput] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
@@ -38,9 +38,9 @@ export default function SymmetricTool({ locale, initialInput, onConsumeInitial }
         encrypt,
         text: saved.input,
         inputEncoding: encrypt ? saved.inputEncoding : saved.outputEncoding,
-        key: saved.key,
+        key,
         keyEncoding: saved.keyEncoding,
-        iv: saved.iv,
+        iv,
         ivEncoding: saved.ivEncoding,
         outputEncoding: encrypt ? saved.outputEncoding : "utf8",
       });
@@ -99,7 +99,7 @@ export default function SymmetricTool({ locale, initialInput, onConsumeInitial }
 
       <div className="ts-split">
         <div className="ts-row">
-          <input className="ts-input mono" style={{ flex: 1 }} value={saved.key} onChange={(e) => setSaved((p) => ({ ...p, key: e.target.value }))} placeholder={tx(locale, "Key", "密钥 (Key)")} />
+          <input className="ts-input mono" style={{ flex: 1 }} value={key} onChange={(e) => setKey(e.target.value)} placeholder={tx(locale, "Key", "密钥 (Key)")} />
           <select className="ts-select" style={{ width: 85 }} value={saved.keyEncoding} onChange={(e) => setSaved((p) => ({ ...p, keyEncoding: e.target.value }))}>
             <option value="utf8">UTF-8</option>
             <option value="hex">Hex</option>
@@ -111,8 +111,8 @@ export default function SymmetricTool({ locale, initialInput, onConsumeInitial }
             <input
               className="ts-input mono"
               style={{ flex: 1 }}
-              value={saved.iv}
-              onChange={(e) => setSaved((p) => ({ ...p, iv: e.target.value }))}
+              value={iv}
+              onChange={(e) => setIv(e.target.value)}
               placeholder={
                 saved.mode === "gcm"
                   ? tx(locale, "12-byte Nonce", "12 字节 Nonce")

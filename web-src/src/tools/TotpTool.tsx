@@ -25,15 +25,16 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
     kind: "totp" as "totp" | "hotp",
     issuer: "OpenIDEA",
     account: "dev@openidea.local",
-    secret: "JBSWY3DPEHPK3PXP",
     algorithm: "SHA1" as "SHA1" | "SHA256" | "SHA512",
     digits: 6 as 6 | 8,
     period: 30,
     counter: 0,
     keyBytes: 20,
-    uriInput: "",
   });
 
+  // Keep TOTP Base32 secrets and otpauth:// URIs (containing secret=) strictly in memory.
+  const [secretInput, setSecretInput] = useState("JBSWY3DPEHPK3PXP");
+  const [uriInput, setUriInput] = useState("");
   const [totpRes, setTotpRes] = useState<TotpResult | null>(null);
   const [hotpCode, setHotpCode] = useState<string>("");
   const [builtUri, setBuiltUri] = useState<string>("");
@@ -46,10 +47,10 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
     if (initialInput != null) {
       const s = initialInput.trim();
       if (s.toLowerCase().startsWith("otpauth://")) {
-        setSaved((p) => ({ ...p, uriInput: s }));
+        setUriInput(s);
         parseUri(s);
       } else if (s) {
-        setSaved((p) => ({ ...p, secret: s }));
+        setSecretInput(s);
       }
       onConsumeInitial?.();
     }
@@ -63,7 +64,7 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
 
   useEffect(() => {
     let active = true;
-    const secret = saved.secret.trim();
+    const secret = secretInput.trim();
     if (!secret) {
       setTotpRes(null);
       setHotpCode("");
@@ -102,11 +103,11 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
     return () => {
       active = false;
     };
-  }, [saved.kind, saved.secret, saved.period, saved.digits, saved.algorithm, saved.counter, tick]);
+  }, [saved.kind, secretInput, saved.period, saved.digits, saved.algorithm, saved.counter, tick]);
 
   useEffect(() => {
     let active = true;
-    const secret = saved.secret.trim();
+    const secret = secretInput.trim();
     if (!secret) {
       setBuiltUri("");
       setQrUrl("");
@@ -142,20 +143,20 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
     return () => {
       active = false;
     };
-  }, [saved.kind, saved.issuer, saved.account, saved.secret, saved.algorithm, saved.digits, saved.period, saved.counter]);
+  }, [saved.kind, saved.issuer, saved.account, secretInput, saved.algorithm, saved.digits, saved.period, saved.counter]);
 
   const generateNewSecret = async () => {
     setErr(null);
     try {
       const res = await bridge.rpc<{ secret: string }>("totp.newSecret", { bytes: saved.keyBytes });
-      setSaved((p) => ({ ...p, secret: res.secret }));
+      setSecretInput(res.secret);
       setStatus(tx(locale, "Generated new Base32 secret", "已生成新 Base32 密钥"));
     } catch (e) {
       setErr((e as Error).message);
     }
   };
 
-  const parseUri = async (rawUri = saved.uriInput) => {
+  const parseUri = async (rawUri = uriInput) => {
     setErr(null);
     try {
       const res = await bridge.rpc<{
@@ -168,12 +169,12 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
         period: number;
         counter: number;
       }>("totp.parseUri", { uri: rawUri });
+      setSecretInput(res.secret);
       setSaved((p) => ({
         ...p,
         kind: res.kind === "hotp" ? "hotp" : "totp",
         issuer: res.issuer || p.issuer,
         account: res.account || p.account,
-        secret: res.secret,
         algorithm: res.algorithm === "SHA256" || res.algorithm === "SHA512" ? res.algorithm : "SHA1",
         digits: res.digits === 8 ? 8 : 6,
         period: res.period || 30,
@@ -205,10 +206,10 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
           locale={locale}
           onPaste={(t) => {
             if (t.trim().toLowerCase().startsWith("otpauth://")) {
-              setSaved((p) => ({ ...p, uriInput: t.trim() }));
+              setUriInput(t.trim());
               parseUri(t.trim());
             } else {
-              setSaved((p) => ({ ...p, secret: t.trim() }));
+              setSecretInput(t.trim());
             }
           }}
           outputText={builtUri || currentCode}
@@ -383,8 +384,8 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
           <input
             className="ts-input mono"
             style={{ flex: 1 }}
-            value={saved.secret}
-            onChange={(e) => setSaved((p) => ({ ...p, secret: e.target.value }))}
+            value={secretInput}
+            onChange={(e) => setSecretInput(e.target.value)}
             placeholder="JBSWY3DPEHPK3PXP"
           />
           <select
@@ -428,8 +429,8 @@ export default function TotpTool({ tabId, locale, initialInput, onConsumeInitial
           <input
             className="ts-input mono"
             style={{ flex: 1 }}
-            value={saved.uriInput}
-            onChange={(e) => setSaved((p) => ({ ...p, uriInput: e.target.value }))}
+            value={uriInput}
+            onChange={(e) => setUriInput(e.target.value)}
             placeholder="otpauth://totp/OpenIDEA:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=OpenIDEA"
           />
           <button type="button" className="ts-btn" onClick={() => parseUri()}>

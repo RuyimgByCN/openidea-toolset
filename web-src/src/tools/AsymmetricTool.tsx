@@ -14,10 +14,10 @@ export default function AsymmetricTool({ locale }: ToolProps) {
     sm2DistId: "1234567812345678",
     encoding: "base64",
     publicKey: "",
-    privateKey: "",
     input: "Secret asymmetric message",
     signature: "",
   });
+  const [privateKey, setPrivateKey] = useState("");
   const [output, setOutput] = useState("");
   const [verifyRes, setVerifyRes] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,10 +29,12 @@ export default function AsymmetricTool({ locale }: ToolProps) {
     try {
       if (saved.alg === "rsa") {
         const res = await bridge.rpc<{ privateKey: string; publicKey: string }>("crypto.rsaKeygen", { bits: saved.rsaBits }, 30000);
-        setSaved((p) => ({ ...p, privateKey: res.privateKey, publicKey: res.publicKey }));
+        setPrivateKey(res.privateKey);
+        setSaved((p) => ({ ...p, publicKey: res.publicKey }));
       } else {
         const res = await bridge.rpc<{ privateKey: string; publicKey: string }>("crypto.sm2Keygen", {});
-        setSaved((p) => ({ ...p, privateKey: res.privateKey, publicKey: res.publicKey }));
+        setPrivateKey(res.privateKey);
+        setSaved((p) => ({ ...p, publicKey: res.publicKey }));
       }
     } catch (e) {
       setErr((e as Error).message);
@@ -56,7 +58,7 @@ export default function AsymmetricTool({ locale }: ToolProps) {
           setOutput(r.result);
         } else if (op === "decrypt") {
           const r = await bridge.rpc<{ result: string }>("crypto.rsaDecrypt", {
-            privateKey: saved.privateKey,
+            privateKey,
             text: saved.input,
             inputEncoding: saved.encoding,
             padding: saved.rsaPadding,
@@ -64,7 +66,7 @@ export default function AsymmetricTool({ locale }: ToolProps) {
           setOutput(r.result);
         } else if (op === "sign") {
           const r = await bridge.rpc<{ result: string }>("crypto.rsaSign", {
-            privateKey: saved.privateKey,
+            privateKey,
             text: saved.input,
             outputEncoding: saved.encoding,
           });
@@ -90,7 +92,7 @@ export default function AsymmetricTool({ locale }: ToolProps) {
           setOutput(r.result);
         } else if (op === "decrypt") {
           const r = await bridge.rpc<{ result: string }>("crypto.sm2Decrypt", {
-            privateKey: saved.privateKey,
+            privateKey,
             text: saved.input,
             inputEncoding: saved.encoding,
             mode: saved.sm2Mode,
@@ -98,7 +100,7 @@ export default function AsymmetricTool({ locale }: ToolProps) {
           setOutput(r.result);
         } else if (op === "sign") {
           const r = await bridge.rpc<{ result: string }>("crypto.sm2Sign", {
-            privateKey: saved.privateKey,
+            privateKey,
             text: saved.input,
             distId: saved.sm2DistId,
             outputEncoding: saved.encoding,
@@ -169,7 +171,7 @@ export default function AsymmetricTool({ locale }: ToolProps) {
         </label>
         <label className="ts-label">
           {tx(locale, "Private Key (PEM or SM2 Hex)", "私钥（PEM 或 SM2 Hex）")}
-          <textarea className="ts-textarea mono" rows={4} value={saved.privateKey} onChange={(e) => setSaved((p) => ({ ...p, privateKey: e.target.value }))} />
+          <textarea className="ts-textarea mono" rows={4} value={privateKey} onChange={(e) => setPrivateKey(e.target.value)} />
         </label>
       </div>
 

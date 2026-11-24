@@ -25,10 +25,10 @@ export default function HashTool({ locale, initialInput, onConsumeInitial }: Too
   const [saved, setSaved] = useToolState("hash", {
     input: "Hello OpenIDEA",
     inputEncoding: "utf8",
-    hmacKey: "",
     keyEncoding: "utf8",
     outputEncoding: "hex",
   });
+  const [hmacKey, setHmacKey] = useState("");
   const [results, setResults] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
 
@@ -43,14 +43,14 @@ export default function HashTool({ locale, initialInput, onConsumeInitial }: Too
     if (!bridge.isHosted) return;
     const t = setTimeout(async () => {
       try {
-        const list = saved.hmacKey ? ALGS.filter((a) => !NON_HMAC_ALGS.has(a)) : ALGS;
+        const list = hmacKey ? ALGS.filter((a) => !NON_HMAC_ALGS.has(a)) : ALGS;
         const pairs = await Promise.all(
           list.map(async (alg) => {
             const res = await bridge.rpc<{ result: string }>("crypto.hash", {
               text: saved.input,
               inputEncoding: saved.inputEncoding,
               alg,
-              hmacKey: saved.hmacKey || null,
+              hmacKey: hmacKey || null,
               keyEncoding: saved.keyEncoding,
               outputEncoding: saved.outputEncoding,
             });
@@ -64,7 +64,7 @@ export default function HashTool({ locale, initialInput, onConsumeInitial }: Too
       }
     }, 80);
     return () => clearTimeout(t);
-  }, [saved.input, saved.inputEncoding, saved.hmacKey, saved.keyEncoding, saved.outputEncoding]);
+  }, [saved.input, saved.inputEncoding, hmacKey, saved.keyEncoding, saved.outputEncoding]);
 
   return (
     <div className="ts-tool">
@@ -92,11 +92,11 @@ export default function HashTool({ locale, initialInput, onConsumeInitial }: Too
         <input
           className="ts-input mono"
           style={{ flex: 1 }}
-          value={saved.hmacKey}
-          onChange={(e) => setSaved((p) => ({ ...p, hmacKey: e.target.value }))}
+          value={hmacKey}
+          onChange={(e) => setHmacKey(e.target.value)}
           placeholder={tx(locale, "Optional HMAC key (blank = plain hash)", "可选 HMAC 密钥（留空为普通摘要）")}
         />
-        {saved.hmacKey && (
+        {hmacKey && (
           <select className="ts-select" style={{ width: 95 }} value={saved.keyEncoding} onChange={(e) => setSaved((p) => ({ ...p, keyEncoding: e.target.value }))}>
             <option value="utf8">UTF-8</option>
             <option value="hex">Hex</option>
@@ -112,7 +112,7 @@ export default function HashTool({ locale, initialInput, onConsumeInitial }: Too
       <div className="ts-box ts-kv">
         {Object.entries(results).map(([alg, val]) => (
           <div key={alg} style={{ display: "contents" }}>
-            <span className="ts-kv-key">{saved.hmacKey ? `HMAC-${alg.toUpperCase()}` : alg.toUpperCase()}</span>
+            <span className="ts-kv-key">{hmacKey ? `HMAC-${alg.toUpperCase()}` : alg.toUpperCase()}</span>
             <div className="ts-row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
               <span className="ts-kv-val">{val}</span>
               <button type="button" className="ts-btn sm" onClick={() => copyToClipboard(val)}>

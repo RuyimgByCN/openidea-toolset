@@ -15,30 +15,30 @@ interface DecodedJwt {
 
 export default function JwtTool({ locale, initialInput, onConsumeInitial }: ToolProps) {
   const [saved, setSaved] = useToolState("jwt", {
-    token: "",
     header: '{\n  "alg": "HS256",\n  "typ": "JWT"\n}',
     payload: '{\n  "sub": "1234567890",\n  "name": "Ada Lovelace",\n  "iat": 1700000000\n}',
     alg: "HS256",
-    secret: "your-256-bit-secret",
   });
+  const [token, setToken] = useState("");
+  const [secret, setSecret] = useState("your-256-bit-secret");
   const [decoded, setDecoded] = useState<DecodedJwt | null>(null);
   const [verified, setVerified] = useState<boolean | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialInput != null) {
-      setSaved((p) => ({ ...p, token: initialInput.trim() }));
+      setToken(initialInput.trim());
       onConsumeInitial?.();
     }
   }, [initialInput]);
 
   useEffect(() => {
-    if (!bridge.isHosted || !saved.token.trim()) {
+    if (!bridge.isHosted || !token.trim()) {
       setDecoded(null);
       return;
     }
     bridge
-      .rpc<DecodedJwt>("crypto.jwtDecode", { token: saved.token })
+      .rpc<DecodedJwt>("crypto.jwtDecode", { token })
       .then((d) => {
         setDecoded(d);
         setErr(null);
@@ -47,7 +47,7 @@ export default function JwtTool({ locale, initialInput, onConsumeInitial }: Tool
         setDecoded(null);
         setErr((e as Error).message);
       });
-  }, [saved.token]);
+  }, [token]);
 
   const sign = async () => {
     setErr(null);
@@ -57,9 +57,9 @@ export default function JwtTool({ locale, initialInput, onConsumeInitial }: Tool
         header: saved.header,
         payload: saved.payload,
         alg: saved.alg,
-        secret: saved.secret,
+        secret,
       });
-      setSaved((p) => ({ ...p, token: res.token }));
+      setToken(res.token);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -69,8 +69,8 @@ export default function JwtTool({ locale, initialInput, onConsumeInitial }: Tool
     setErr(null);
     try {
       const res = await bridge.rpc<{ valid: boolean }>("crypto.jwtVerify", {
-        token: saved.token,
-        secret: saved.secret,
+        token,
+        secret,
       });
       setVerified(res.valid);
     } catch (e) {
@@ -85,17 +85,17 @@ export default function JwtTool({ locale, initialInput, onConsumeInitial }: Tool
         <span className="ts-tool-title">{tx(locale, "JWT Inspector & Signer", "JWT 解析与签发验证")}</span>
         <ToolActionBar
           locale={locale}
-          onImportEditor={(t) => setSaved((p) => ({ ...p, token: t.trim() }))}
-          onPaste={(t) => setSaved((p) => ({ ...p, token: t.trim() }))}
-          outputText={saved.token}
+          onImportEditor={(t) => setToken(t.trim())}
+          onPaste={(t) => setToken(t.trim())}
+          outputText={token}
         />
       </div>
 
       <textarea
         className="ts-textarea mono"
         rows={3}
-        value={saved.token}
-        onChange={(e) => { setSaved((p) => ({ ...p, token: e.target.value })); setVerified(null); }}
+        value={token}
+        onChange={(e) => { setToken(e.target.value); setVerified(null); }}
         placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
       />
 
@@ -109,8 +109,8 @@ export default function JwtTool({ locale, initialInput, onConsumeInitial }: Tool
         <input
           className="ts-input mono"
           style={{ flex: 1 }}
-          value={saved.secret}
-          onChange={(e) => setSaved((p) => ({ ...p, secret: e.target.value }))}
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
           placeholder={saved.alg === "RS256" ? tx(locale, "RSA PEM key", "RSA PEM 密钥") : tx(locale, "HMAC secret", "HMAC 密钥")}
         />
         <button type="button" className="ts-btn primary" onClick={sign}>{tx(locale, "Sign", "签发")}</button>

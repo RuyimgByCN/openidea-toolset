@@ -43,6 +43,8 @@ pub struct PendingOpen {
 pub struct Toolset {
     pub pending_open: Option<PendingOpen>,
     pub ws_conns: HashMap<String, host::WebSocket>,
+    pub active_http: Option<storage::HttpActiveRequest>,
+    pub active_ws: Option<storage::WsActiveConfig>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +191,7 @@ fn refresh_status_menu() {
 
 impl Plugin for Toolset {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
+        storage::scrub_persisted_secrets();
         let _ = host::subscribe(EventKind::WebsocketReady);
         let _ = host::subscribe(EventKind::SettingsChanged);
         refresh_status_menu();
@@ -469,7 +472,10 @@ impl Plugin for Toolset {
                 Ok(None)
             }
             "http-send" => {
-                let req = storage::load_active_http()
+                let req = self
+                    .active_http
+                    .clone()
+                    .or_else(storage::load_active_http)
                     .ok_or_else(|| Error::Invalid("Open HTTP Client and configure a request first".into()))?;
                 let payload = match extra_tools::execute_http_request(&req) {
                     Ok(data) => json!({ "op": "http-response", "tabId": req.tab_id, "ok": true, "data": data }),
@@ -484,7 +490,10 @@ impl Plugin for Toolset {
                 }
             }
             "ws-connect" => {
-                let cfg = storage::load_active_ws()
+                let cfg = self
+                    .active_ws
+                    .clone()
+                    .or_else(storage::load_active_ws)
                     .ok_or_else(|| Error::Invalid("Open WebSocket Client and configure a URL first".into()))?;
                 let res = connect_ws_tab(self, ctx, cfg.clone());
                 let _ = host::reveal_view(VIEW);
@@ -1216,13 +1225,17 @@ pub fn handle_rpc(plugin: &mut Toolset, method: &str, params: &Value, ctx: &Invo
         "http.setActive" => {
             let req: storage::HttpActiveRequest = serde_json::from_value(params.clone())
                 .map_err(|e| Error::Invalid(format!("Invalid HTTP request payload: {e}")))?;
-            storage::save_json(storage::KEY_HTTP_ACTIVE, &req)?;
+            plugin.active_http = Some(req.clone());
+            let (clean, _) = storage::sanitize_http_active(&req);
+            storage::save_json(storage::KEY_HTTP_ACTIVE, &clean)?;
             Ok(json!({ "saved": true }))
         }
         "http.send" => {
             let req: storage::HttpActiveRequest = serde_json::from_value(params.clone())
                 .map_err(|e| Error::Invalid(format!("Invalid HTTP request payload: {e}")))?;
-            storage::save_json(storage::KEY_HTTP_ACTIVE, &req)?;
+            plugin.active_http = Some(req.clone());
+            let (clean, _) = storage::sanitize_http_active(&req);
+            storage::save_json(storage::KEY_HTTP_ACTIVE, &clean)?;
             extra_tools::execute_http_request(&req)
         }
 
@@ -1326,13 +1339,17 @@ pub fn handle_rpc(plugin: &mut Toolset, method: &str, params: &Value, ctx: &Invo
         "ws.setActive" => {
             let cfg: storage::WsActiveConfig = serde_json::from_value(params.clone())
                 .map_err(|e| Error::Invalid(format!("Invalid WebSocket config payload: {e}")))?;
-            storage::save_json(storage::KEY_WS_ACTIVE, &cfg)?;
+            plugin.active_ws = Some(cfg.clone());
+            let (clean, _) = storage::sanitize_ws_active(&cfg);
+            storage::save_json(storage::KEY_WS_ACTIVE, &clean)?;
             Ok(json!({ "saved": true }))
         }
         "ws.connect" => {
             let cfg: storage::WsActiveConfig = serde_json::from_value(params.clone())
                 .map_err(|e| Error::Invalid(format!("Invalid WebSocket config payload: {e}")))?;
-            storage::save_json(storage::KEY_WS_ACTIVE, &cfg)?;
+            plugin.active_ws = Some(cfg.clone());
+            let (clean, _) = storage::sanitize_ws_active(&cfg);
+            storage::save_json(storage::KEY_WS_ACTIVE, &clean)?;
             connect_ws_tab(plugin, ctx, cfg.clone())?;
             Ok(json!({ "connected": true, "url": cfg.url }))
         }
@@ -2031,5 +2048,282 @@ mod tests {
         assert_eq!(ws_msg["op"], "ws-event");
         assert_eq!(ws_msg["messages"][0]["text"], "pong");
         handle_rpc(&mut plugin, "ws.disconnect", &json!({ "tabId": "ws-1" }), &host.invocation()).unwrap();
+    }
+
+    fn call_view_rpc(plugin: &mut Toolset, host: &MockHost, id: i64, method: &str, params: Value) -> Value {
+        let req = json!({ "op": "rpc", "id": id, "method": method, "params": params });
+        plugin
+            .handle(VIEW, ViewEvent::Message(req.to_string()), &host.invocation())
+            .unwrap();
+        let (_, raw) = host.view_messages().pop().unwrap();
+        let reply: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["ok"], true, "RPC {method} failed: {reply}");
+        reply["data"].clone()
+    }
+
+    #[test]
+    fn sql_and_css_minify_and_editor_apply_preserve_literals_and_comments() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "editor.write", "storage"]);
+        let mut plugin = Toolset::default();
+        plugin.activate(&host.context("ruyimg.toolset")).unwrap();
+
+        // 1. SQL string literal whitespace preservation + Apply to Editor
+        let sql_literal = "SELECT 'a  b' AS label;";
+        host.open_editor("/proj/q.sql", "sql", sql_literal, &[(0, 0, 0, 0)]);
+        let min_lit = call_view_rpc(
+            &mut plugin,
+            &host,
+            1,
+            "format.code",
+            json!({ "text": sql_literal, "lang": "sql", "minify": true, "indent": "2" }),
+        );
+        assert_eq!(min_lit["result"], "SELECT 'a  b' AS label;");
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            2,
+            "editor.applyText",
+            json!({ "text": min_lit["result"] }),
+        );
+        assert_eq!(host.editor_text(), "SELECT 'a  b' AS label;");
+
+        // 2. SQL line comment terminator preservation across LF & CRLF
+        let min_comment = call_view_rpc(
+            &mut plugin,
+            &host,
+            3,
+            "format.code",
+            json!({ "text": "SELECT 1 -- note\nFROM items;", "lang": "sql", "minify": true, "indent": "2" }),
+        );
+        assert_eq!(min_comment["result"], "SELECT 1 -- note\nFROM items;");
+
+        let min_crlf = call_view_rpc(
+            &mut plugin,
+            &host,
+            4,
+            "format.code",
+            json!({ "text": "SELECT 1 -- note  \r\n   FROM   items ;", "lang": "sql", "minify": true, "indent": "2" }),
+        );
+        assert_eq!(min_crlf["result"], "SELECT 1 -- note\nFROM items;");
+
+        // 3. SQL escaped quotes, # line comments, dollar-quoting & beautify safety
+        let min_escaped = call_view_rpc(
+            &mut plugin,
+            &host,
+            5,
+            "format.code",
+            json!({ "text": "SELECT 'it''s  -- ok', 'x\\'  y', $$keep  --  $$ # end\nFROM t;", "lang": "sql", "minify": true, "indent": "2" }),
+        );
+        let min_escaped_s = min_escaped["result"].as_str().unwrap();
+        assert!(min_escaped_s.contains("'it''s  -- ok'"));
+        assert!(min_escaped_s.contains(r"'x\'  y'"));
+        assert!(min_escaped_s.contains("$$keep  --  $$"));
+        assert!(min_escaped_s.contains("# end\nFROM t;"));
+
+        let fmt_sql_comment = call_view_rpc(
+            &mut plugin,
+            &host,
+            6,
+            "format.code",
+            json!({ "text": "select 'a  b' -- c\nfrom items;", "lang": "sql", "minify": false, "indent": "2" }),
+        );
+        assert_eq!(fmt_sql_comment["result"], "SELECT 'a  b' -- c\nFROM items;");
+
+        // 4. CSS quoted comment markers, escapes, real comment stripping & selector spacing
+        let css_quoted = ".x::before { content: \"/* visible */\"; }";
+        host.open_editor("/proj/s.css", "css", css_quoted, &[(0, 0, 0, 0)]);
+        let min_css = call_view_rpc(
+            &mut plugin,
+            &host,
+            7,
+            "format.code",
+            json!({ "text": css_quoted, "lang": "css", "minify": true, "indent": "2" }),
+        );
+        assert_eq!(min_css["result"], ".x::before{content:\"/* visible */\";}");
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            8,
+            "editor.applyText",
+            json!({ "text": min_css["result"] }),
+        );
+        assert_eq!(host.editor_text(), ".x::before{content:\"/* visible */\";}");
+
+        let css_complex = "/* header */ div :hover { margin: 10px/*c*/20px; content: \"a \\\"/* s */\\\"  b\"; color : red ; }";
+        let min_css_complex = call_view_rpc(
+            &mut plugin,
+            &host,
+            9,
+            "format.code",
+            json!({ "text": css_complex, "lang": "css", "minify": true, "indent": "2" }),
+        );
+        assert_eq!(
+            min_css_complex["result"],
+            "div :hover{margin:10px 20px;content:\"a \\\"/* s */\\\"  b\";color:red;}"
+        );
+    }
+
+    #[test]
+    fn secrets_never_persisted_and_legacy_secrets_scrubbed_on_upgrade() {
+        let host = MockHost::install().with_capabilities(&["storage", "events", "net:api.example.com"]);
+
+        // Seed legacy plaintext secrets across all sensitive tools prior to activation (upgrade scenario)
+        let _ = host::storage::set(
+            "tool:blockchain",
+            &json!({
+                "subtab": "wallet",
+                "wordCount": 24,
+                "mnemonic": "test legacy seed words should vanish",
+                "passphrase": "legacy-bip39-passphrase",
+                "privKey": "0xdeadbeefdeadbeef",
+                "showSecrets": true,
+                "signature": "0xsig",
+                "account": 2,
+                "index": 1
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:totp-1",
+            &json!({ "kind": "totp", "issuer": "Acme", "secret": "LEGACYBASE32SECRET", "uriInput": "otpauth://totp/Acme?secret=LEGACY" }).to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:asymmetric",
+            &json!({ "alg": "rsa", "publicKey": "PUB", "privateKey": "-----BEGIN PRIVATE KEY-----SECRET" }).to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:symmetric",
+            &json!({ "alg": "aes-256", "key": "super-secret-aes-key", "iv": "secret-iv" }).to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:jwt",
+            &json!({ "alg": "HS256", "secret": "jwt-hmac-secret", "token": "eyJ.secret.jwt" }).to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:hash",
+            &json!({ "outputEncoding": "hex", "hmacKey": "legacy-hmac-key" }).to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:http-1",
+            &json!({
+                "method": "GET",
+                "url": "https://api.example.com/v1",
+                "authToken": "bearer-secret",
+                "authPass": "basic-pass",
+                "curlImport": "curl -H 'Authorization: Bearer x'",
+                "headers": [
+                    { "enabled": true, "key": "Authorization", "value": "Bearer header-secret" },
+                    { "enabled": true, "key": "Accept", "value": "application/json" }
+                ]
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
+            "tool:urlparser-1",
+            &json!({
+                "rawUrl": "https://alice:hunter2@example.com/path?a=1",
+                "username": "alice",
+                "password": "hunter2"
+            })
+            .to_string(),
+        );
+        let _ = host::storage::set(
+            storage::KEY_HTTP_ACTIVE,
+            &json!({
+                "tabId": "http-1",
+                "method": "GET",
+                "url": "https://api.example.com/v1",
+                "headers": [["Authorization", "Bearer top-secret"], ["X-Trace", "123"]],
+                "body": null,
+                "timeoutMs": 5000
+            })
+            .to_string(),
+        );
+
+        let mut plugin = Toolset::default();
+        plugin.activate(&host.context("ruyimg.toolset")).unwrap();
+
+        let store = host.storage();
+        for forbidden in [
+            "test legacy seed words should vanish",
+            "legacy-bip39-passphrase",
+            "0xdeadbeefdeadbeef",
+            "LEGACYBASE32SECRET",
+            "-----BEGIN PRIVATE KEY-----SECRET",
+            "super-secret-aes-key",
+            "secret-iv",
+            "jwt-hmac-secret",
+            "eyJ.secret.jwt",
+            "legacy-hmac-key",
+            "bearer-secret",
+            "basic-pass",
+            "header-secret",
+            "hunter2",
+            "Bearer top-secret",
+        ] {
+            for (k, v) in &store {
+                assert!(!v.contains(forbidden), "storage key {k} still contains scrubbed secret {forbidden:?}");
+            }
+        }
+        // Non-sensitive preferences survived upgrade scrubbing
+        let bc: Value = serde_json::from_str(&store["tool:blockchain"]).unwrap();
+        assert_eq!(bc["wordCount"], 24);
+        assert_eq!(bc["account"], 2);
+        let url_st: Value = serde_json::from_str(&store["tool:urlparser-1"]).unwrap();
+        assert_eq!(url_st["rawUrl"], "https://alice@example.com/path?a=1");
+
+        // Attempting to persist secrets via storage.setToolState strips secrets before storage write
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            10,
+            "storage.setToolState",
+            json!({
+                "toolId": "blockchain",
+                "state": {
+                    "wordCount": 18,
+                    "mnemonic": "fresh sensitive mnemonic",
+                    "passphrase": "fresh pass",
+                    "privKey": "0x11223344",
+                    "showSecrets": true,
+                    "account": 3
+                }
+            }),
+        );
+        let raw_bc = host.storage().get("tool:blockchain").cloned().unwrap();
+        assert!(!raw_bc.contains("fresh sensitive mnemonic"));
+        assert!(!raw_bc.contains("fresh pass"));
+        assert!(!raw_bc.contains("0x11223344"));
+        let saved_bc: Value = serde_json::from_str(&raw_bc).unwrap();
+        assert_eq!(saved_bc["wordCount"], 18);
+        assert_eq!(saved_bc["account"], 3);
+
+        // In-memory active_http keeps Authorization header for live http-send while persisted state omits it
+        host.on_fetch(|req| {
+            assert!(req.headers.iter().any(|(k, v)| k == "Authorization" && v == "Bearer live-only-token"));
+            Ok(openidea_plugin::HttpResponse {
+                status: 200,
+                headers: vec![],
+                body: b"ok".to_vec(),
+            })
+        });
+        call_view_rpc(
+            &mut plugin,
+            &host,
+            11,
+            "http.setActive",
+            json!({
+                "tabId": "http-1",
+                "method": "GET",
+                "url": "https://api.example.com/live",
+                "headers": [["Authorization", "Bearer live-only-token"], ["Accept", "application/json"]],
+                "body": null,
+                "timeoutMs": 5000
+            }),
+        );
+        assert!(!host.storage()[storage::KEY_HTTP_ACTIVE].contains("live-only-token"));
+        assert!(host.storage()[storage::KEY_HTTP_ACTIVE].contains("Accept"));
+        plugin.run_command("http-send", &host.invocation(), None).unwrap();
     }
 }

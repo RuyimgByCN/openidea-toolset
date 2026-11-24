@@ -70,19 +70,40 @@ function parseUrlParts(raw: string): {
   }
 }
 
+export function stripUrlPassword(raw: string): string {
+  try {
+    const u = new URL(raw.trim());
+    if (u.password) {
+      u.password = "";
+      return u.toString();
+    }
+    return raw;
+  } catch {
+    return raw.replace(/(:\/\/[^:/?#\s@]+):[^/?#@\s]+@/g, "$1@");
+  }
+}
+
 export default function UrlParserTool({ tabId, locale, initialInput, onConsumeInitial }: ToolProps) {
   const initialParsed = parseUrlParts(SAMPLE_URL);
-  const [saved, setSaved] = useToolState(`urlparser-${tabId}`, {
-    rawUrl: SAMPLE_URL,
-    protocol: initialParsed.protocol,
-    username: initialParsed.username,
-    password: initialParsed.password,
-    hostname: initialParsed.hostname,
-    port: initialParsed.port,
-    pathname: initialParsed.pathname,
-    hash: initialParsed.hash,
-    params: initialParsed.params as QueryRow[],
-  });
+  const [saved, setSaved] = useToolState(
+    `urlparser-${tabId}`,
+    {
+      rawUrl: SAMPLE_URL,
+      protocol: initialParsed.protocol,
+      username: initialParsed.username,
+      hostname: initialParsed.hostname,
+      port: initialParsed.port,
+      pathname: initialParsed.pathname,
+      hash: initialParsed.hash,
+      params: initialParsed.params as QueryRow[],
+    },
+    (state) => ({
+      ...state,
+      rawUrl: stripUrlPassword(state.rawUrl),
+    }),
+  );
+  // Keep URL passwords in memory only; never persist credentials.
+  const [password, setPassword] = useState(initialParsed.password);
   const [parseErr, setParseErr] = useState<string | null>(initialParsed.valid ? null : initialParsed.error || null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -97,11 +118,11 @@ export default function UrlParserTool({ tabId, locale, initialInput, onConsumeIn
     const p = parseUrlParts(raw);
     if (p.valid) {
       setParseErr(null);
+      setPassword(p.password);
       setSaved({
         rawUrl: raw,
         protocol: p.protocol,
         username: p.username,
-        password: p.password,
         hostname: p.hostname,
         port: p.port,
         pathname: p.pathname,
@@ -114,12 +135,12 @@ export default function UrlParserTool({ tabId, locale, initialInput, onConsumeIn
     }
   };
 
-  const buildFromParts = (next: typeof saved): string => {
+  const buildFromParts = (next: typeof saved, pw: string): string => {
     try {
       const proto = (next.protocol || "https").replace(/:$/, "");
       const u = new URL(`${proto}://${next.hostname || "localhost"}`);
       if (next.username) u.username = next.username;
-      if (next.password) u.password = next.password;
+      if (pw) u.password = pw;
       u.port = next.port;
       u.pathname = next.pathname.startsWith("/") ? next.pathname : `/${next.pathname}`;
       const sp = new URLSearchParams();
@@ -137,16 +158,16 @@ export default function UrlParserTool({ tabId, locale, initialInput, onConsumeIn
     }
   };
 
-  const updateParts = (patch: Partial<typeof saved>) => {
+  const updateParts = (patch: Partial<typeof saved>, nextPw = password) => {
     setSaved((prev) => {
       const next = { ...prev, ...patch };
-      const rebuilt = buildFromParts(next);
+      const rebuilt = buildFromParts(next, nextPw);
       setParseErr(null);
       return { ...next, rawUrl: rebuilt };
     });
   };
 
-  const rebuiltUrl = useMemo(() => buildFromParts(saved), [saved]);
+  const rebuiltUrl = useMemo(() => buildFromParts(saved, password), [saved, password]);
   const pathSegments = useMemo(() => saved.pathname.split("/").filter(Boolean), [saved.pathname]);
 
   return (
@@ -213,7 +234,16 @@ export default function UrlParserTool({ tabId, locale, initialInput, onConsumeIn
           <input className="ts-input mono" value={saved.username} onChange={(e) => updateParts({ username: e.target.value })} />
 
           <span className="ts-kv-key">{tx(locale, "Password", "密码")}</span>
-          <input className="ts-input mono" value={saved.password} onChange={(e) => updateParts({ password: e.target.value })} />
+          <input
+            type="password"
+            className="ts-input mono"
+            value={password}
+            onChange={(e) => {
+              const nextPw = e.target.value;
+              setPassword(nextPw);
+              updateParts({}, nextPw);
+            }}
+          />
         </div>
 
         {pathSegments.length > 0 && (

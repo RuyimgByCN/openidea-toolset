@@ -617,7 +617,7 @@ fn json_to_querystring(val: &Value) -> Result<String, Error> {
 pub fn format_code(input: &str, lang: &str, minify: bool, indent: &str) -> Result<String, Error> {
     match lang {
         "xml" | "html" => format_markup(input, minify, indent),
-        "sql" => Ok(if minify { minify_whitespace(input) } else { format_sql(input, indent) }),
+        "sql" => Ok(if minify { minify_sql(input) } else { format_sql(input, indent) }),
         "css" => Ok(if minify { minify_css(input) } else { format_css(input, indent) }),
         _ => Err(Error::Invalid(format!("Unsupported language {lang}"))),
     }
@@ -651,8 +651,182 @@ fn format_markup(input: &str, minify: bool, indent: &str) -> Result<String, Erro
     String::from_utf8(bytes).map_err(|e| Error::Invalid(e.to_string()))
 }
 
-fn minify_whitespace(input: &str) -> String {
-    input.split_whitespace().collect::<Vec<_>>().join(" ")
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SqlTokKind {
+    Word,
+    StringOrIdent,
+    Punct,
+    LineComment,
+    BlockComment,
+}
+
+struct SqlTok {
+    kind: SqlTokKind,
+    text: String,
+}
+
+fn parse_dollar_tag(chars: &[char], start: usize) -> Option<String> {
+    if chars.get(start) != Some(&'$') {
+        return None;
+    }
+    let mut j = start + 1;
+    while j < chars.len() {
+        let ch = chars[j];
+        if ch == '$' {
+            return Some(chars[start..=j].iter().collect());
+        }
+        if j == start + 1 {
+            if !(ch.is_ascii_alphabetic() || ch == '_') {
+                return None;
+            }
+        } else if !(ch.is_ascii_alphanumeric() || ch == '_') {
+            return None;
+        }
+        j += 1;
+    }
+    None
+}
+
+fn consume_sql_quoted(chars: &[char], start: usize) -> (String, usize) {
+    let quote = chars[start];
+    let mut buf = String::from(quote);
+    let mut i = start + 1;
+    while i < chars.len() {
+        let c = chars[i];
+        buf.push(c);
+        if c == '\\' && i + 1 < chars.len() {
+            i += 1;
+            buf.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        if c == quote {
+            if chars.get(i + 1) == Some(&quote) {
+                i += 1;
+                buf.push(chars[i]);
+            } else {
+                i += 1;
+                break;
+            }
+        }
+        i += 1;
+    }
+    (buf, i)
+}
+
+fn tokenize_sql(input: &str) -> Vec<SqlTok> {
+    let mut tokens = Vec::new();
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        if (c == '-' && chars.get(i + 1) == Some(&'-')) || c == '#' {
+            let mut buf = String::new();
+            while i < chars.len() && chars[i] != '\n' && chars[i] != '\r' {
+                buf.push(chars[i]);
+                i += 1;
+            }
+            while buf.ends_with([' ', '\t']) {
+                buf.pop();
+            }
+            tokens.push(SqlTok { kind: SqlTokKind::LineComment, text: buf });
+            continue;
+        }
+        if c == '/' && chars.get(i + 1) == Some(&'*') {
+            let mut buf = String::from("/*");
+            i += 2;
+            while i < chars.len() {
+                buf.push(chars[i]);
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    i += 1;
+                    buf.push('/');
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            tokens.push(SqlTok { kind: SqlTokKind::BlockComment, text: buf });
+            continue;
+        }
+        if c == '\'' || c == '"' || c == '`' {
+            let (buf, next) = consume_sql_quoted(&chars, i);
+            tokens.push(SqlTok { kind: SqlTokKind::StringOrIdent, text: buf });
+            i = next;
+            continue;
+        }
+        if let Some(tag) = parse_dollar_tag(&chars, i) {
+            let tag_chars: Vec<char> = tag.chars().collect();
+            let mut j = i + tag_chars.len();
+            let mut closed = false;
+            while j + tag_chars.len() <= chars.len() {
+                if chars[j..j + tag_chars.len()] == tag_chars[..] {
+                    let end = j + tag_chars.len();
+                    let text: String = chars[i..end].iter().collect();
+                    tokens.push(SqlTok { kind: SqlTokKind::StringOrIdent, text });
+                    i = end;
+                    closed = true;
+                    break;
+                }
+                j += 1;
+            }
+            if closed {
+                continue;
+            }
+        }
+        if matches!(c, ',' | ';' | '(' | ')' | '.') {
+            tokens.push(SqlTok { kind: SqlTokKind::Punct, text: c.to_string() });
+            i += 1;
+            continue;
+        }
+        let mut buf = String::new();
+        while i < chars.len()
+            && !chars[i].is_whitespace()
+            && !matches!(chars[i], ',' | ';' | '(' | ')' | '.' | '\'' | '"' | '`' | '#')
+            && !(chars[i] == '-' && chars.get(i + 1) == Some(&'-'))
+            && !(chars[i] == '/' && chars.get(i + 1) == Some(&'*'))
+        {
+            buf.push(chars[i]);
+            i += 1;
+        }
+        tokens.push(SqlTok { kind: SqlTokKind::Word, text: buf });
+    }
+    tokens
+}
+
+fn minify_sql(input: &str) -> String {
+    let tokens = tokenize_sql(input);
+    let mut out = String::with_capacity(input.len());
+    let mut need_newline = false;
+    let mut prev_kind: Option<SqlTokKind> = None;
+    let mut prev_text = String::new();
+
+    for tok in tokens {
+        let text = tok.text.as_str();
+        if need_newline {
+            out.push('\n');
+            need_newline = false;
+        } else if !out.is_empty() {
+            let no_space = match tok.kind {
+                SqlTokKind::Punct => matches!(text, "," | ";" | ")" | ".")
+                    || (text == "(" && prev_kind == Some(SqlTokKind::Punct) && matches!(prev_text.as_str(), "(" | ".")),
+                _ => prev_kind == Some(SqlTokKind::Punct) && matches!(prev_text.as_str(), "(" | "."),
+            };
+            if !no_space {
+                out.push(' ');
+            }
+        }
+        out.push_str(text);
+        if tok.kind == SqlTokKind::LineComment {
+            need_newline = true;
+        }
+        prev_kind = Some(tok.kind);
+        prev_text = tok.text;
+    }
+    out
 }
 
 fn format_sql(input: &str, indent: &str) -> String {
@@ -663,136 +837,188 @@ fn format_sql(input: &str, indent: &str) -> String {
         "UNION ALL", "UNION", "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM",
         "ON", "AND", "OR",
     ];
-    let mut tokens = tokenize_sql(input);
+    let tokens = tokenize_sql(input);
     let mut out = String::new();
     let mut i = 0;
+    let mut after_line_comment = false;
     while i < tokens.len() {
-        let cur_upper = tokens[i].to_ascii_uppercase();
-        let two_upper = tokens
-            .get(i + 1)
-            .map(|n| format!("{cur_upper} {}", n.to_ascii_uppercase()));
-        let matched_two = two_upper.as_deref().filter(|t| newline_kw.contains(t));
-        if let Some(kw) = matched_two {
-            if !out.is_empty() {
+        let tok = &tokens[i];
+        if tok.kind == SqlTokKind::LineComment {
+            if after_line_comment {
                 out.push('\n');
+            } else if !out.is_empty() && !out.ends_with([' ', '\n']) {
+                out.push(' ');
             }
-            if matches!(kw, "AND" | "OR" | "ON") {
-                out.push_str(unit);
-            }
-            out.push_str(kw);
-            i += 2;
-            continue;
-        }
-        if newline_kw.contains(&cur_upper.as_str()) {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            if matches!(cur_upper.as_str(), "AND" | "OR" | "ON") {
-                out.push_str(unit);
-            }
-            out.push_str(&cur_upper);
+            out.push_str(&tok.text);
+            after_line_comment = true;
             i += 1;
             continue;
         }
-        let tok = std::mem::take(&mut tokens[i]);
-        if tok == "," {
+        if tok.kind == SqlTokKind::Word {
+            let cur_upper = tok.text.to_ascii_uppercase();
+            let two_upper = tokens
+                .get(i + 1)
+                .filter(|n| n.kind == SqlTokKind::Word)
+                .map(|n| format!("{cur_upper} {}", n.text.to_ascii_uppercase()));
+            let matched_two = two_upper.as_deref().filter(|t| newline_kw.contains(t));
+            if let Some(kw) = matched_two {
+                after_line_comment = false;
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                if matches!(kw, "AND" | "OR" | "ON") {
+                    out.push_str(unit);
+                }
+                out.push_str(kw);
+                i += 2;
+                continue;
+            }
+            if newline_kw.contains(&cur_upper.as_str()) {
+                after_line_comment = false;
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                if matches!(cur_upper.as_str(), "AND" | "OR" | "ON") {
+                    out.push_str(unit);
+                }
+                out.push_str(&cur_upper);
+                i += 1;
+                continue;
+            }
+        }
+        if after_line_comment {
+            out.push('\n');
+            after_line_comment = false;
+        }
+        if tok.kind == SqlTokKind::Punct && tok.text == "," {
             out.push(',');
             out.push('\n');
             out.push_str(unit);
-        } else if tok == ";" {
+        } else if tok.kind == SqlTokKind::Punct && tok.text == ";" {
             out.push_str(";\n");
-        } else if tok == "(" || tok == ")" {
-            if tok == "(" && !out.ends_with([' ', '\n', '(']) {
+        } else if tok.kind == SqlTokKind::Punct && (tok.text == "(" || tok.text == ")") {
+            if tok.text == "(" && !out.ends_with([' ', '\n', '(']) {
                 out.push(' ');
             }
-            out.push_str(&tok);
+            out.push_str(&tok.text);
         } else {
-            if !out.is_empty() && !out.ends_with([' ', '\n', '(', '.']) && tok != "." {
+            if !out.is_empty() && !out.ends_with([' ', '\n', '(', '.']) && tok.text != "." {
                 out.push(' ');
             }
-            out.push_str(&tok);
+            out.push_str(&tok.text);
         }
         i += 1;
     }
     out.trim().to_owned()
 }
 
-fn tokenize_sql(input: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = 0;
+fn looks_like_declaration_colon(chars: &[char], colon_idx: usize) -> bool {
+    let mut in_str: Option<char> = None;
+    let mut i = colon_idx + 1;
     while i < chars.len() {
         let c = chars[i];
-        if c.is_whitespace() {
+        if let Some(q) = in_str {
+            if c == '\\' && i + 1 < chars.len() {
+                i += 2;
+                continue;
+            }
+            if c == q {
+                in_str = None;
+            }
             i += 1;
             continue;
         }
-        if c == '\'' || c == '"' || c == '`' {
-            let quote = c;
-            let mut buf = String::from(c);
-            i += 1;
+        if c == '/' && chars.get(i + 1) == Some(&'*') {
+            i += 2;
             while i < chars.len() {
-                buf.push(chars[i]);
-                if chars[i] == quote {
-                    if chars.get(i + 1) == Some(&quote) {
-                        i += 1;
-                        buf.push(chars[i]);
-                    } else {
-                        i += 1;
-                        break;
-                    }
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    i += 2;
+                    break;
                 }
                 i += 1;
             }
-            tokens.push(buf);
             continue;
         }
-        if matches!(c, ',' | ';' | '(' | ')' | '.') {
-            tokens.push(c.to_string());
+        if c == '"' || c == '\'' {
+            in_str = Some(c);
             i += 1;
             continue;
         }
-        let mut buf = String::new();
-        while i < chars.len() && !chars[i].is_whitespace() && !matches!(chars[i], ',' | ';' | '(' | ')' | '.' | '\'' | '"' | '`') {
-            buf.push(chars[i]);
-            i += 1;
+        match c {
+            ';' | '}' => return true,
+            '{' => return false,
+            _ => i += 1,
         }
-        tokens.push(buf);
     }
-    tokens
+    false
 }
 
 fn minify_css(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
-    let mut in_comment = false;
     let chars: Vec<char> = input.chars().collect();
     let mut i = 0;
+    let mut depth = 0usize;
+    let mut pending_space = false;
+
     while i < chars.len() {
-        if !in_comment && chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
-            in_comment = true;
-            i += 2;
+        let c = chars[i];
+        if c.is_whitespace() {
+            pending_space = true;
+            i += 1;
             continue;
         }
-        if in_comment && chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
-            in_comment = false;
+        if c == '/' && chars.get(i + 1) == Some(&'*') {
             i += 2;
-            continue;
-        }
-        if !in_comment {
-            if chars[i].is_whitespace() {
-                if !out.ends_with([' ', '{', '}', ':', ';', ',']) {
-                    out.push(' ');
+            while i < chars.len() {
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    i += 2;
+                    break;
                 }
-            } else {
-                if matches!(chars[i], '{' | '}' | ':' | ';' | ',') && out.ends_with(' ') {
-                    out.pop();
-                }
-                out.push(chars[i]);
+                i += 1;
             }
+            pending_space = true;
+            continue;
         }
+        if c == '"' || c == '\'' {
+            if pending_space && !out.is_empty() && !out.ends_with(['{', '}', ':', ';', ',']) {
+                out.push(' ');
+            }
+            pending_space = false;
+            out.push(c);
+            i += 1;
+            while i < chars.len() {
+                let sc = chars[i];
+                out.push(sc);
+                if sc == '\\' && i + 1 < chars.len() {
+                    i += 1;
+                    out.push(chars[i]);
+                    i += 1;
+                    continue;
+                }
+                if sc == c {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+
+        let is_decl_colon = c == ':' && depth > 0 && looks_like_declaration_colon(&chars, i);
+        let suppress_before = matches!(c, '{' | '}' | ';' | ',') || is_decl_colon;
+        if pending_space && !suppress_before && !out.is_empty() && !out.ends_with(['{', '}', ':', ';', ',']) {
+            out.push(' ');
+        }
+        pending_space = false;
+        if c == '{' {
+            depth += 1;
+        } else if c == '}' {
+            depth = depth.saturating_sub(1);
+        }
+        out.push(c);
         i += 1;
     }
-    out.trim().to_owned()
+    out
 }
 
 fn format_css(input: &str, indent: &str) -> String {
@@ -800,17 +1026,50 @@ fn format_css(input: &str, indent: &str) -> String {
     let mut out = String::new();
     let mut depth = 0usize;
     let mut in_str: Option<char> = None;
-    for ch in input.chars() {
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
         if let Some(q) = in_str {
             out.push(ch);
+            if ch == '\\' && i + 1 < chars.len() {
+                i += 1;
+                out.push(chars[i]);
+                i += 1;
+                continue;
+            }
             if ch == q {
                 in_str = None;
+            }
+            i += 1;
+            continue;
+        }
+        if ch == '/' && chars.get(i + 1) == Some(&'*') {
+            if !out.is_empty() && !out.ends_with([' ', '\t', '\n']) {
+                out.push(' ');
+            }
+            out.push_str("/*");
+            i += 2;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    i += 1;
+                    out.push('/');
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push('\n');
+            for _ in 0..depth {
+                out.push_str(unit);
             }
             continue;
         }
         if ch == '"' || ch == '\'' {
             in_str = Some(ch);
             out.push(ch);
+            i += 1;
             continue;
         }
         match ch {
@@ -850,6 +1109,7 @@ fn format_css(input: &str, indent: &str) -> String {
             }
             other => out.push(other),
         }
+        i += 1;
     }
     out.lines().map(str::trim_end).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
 }

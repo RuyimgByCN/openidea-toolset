@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BridgeClient } from "../bridge";
+import { pickAllowedKeys } from "../hooks/useToolState";
 import { isZhLocale, tx } from "../i18n";
 import { CATEGORIES, searchTools, TOOL_REGISTRY } from "../registry";
 import { COMMAND_SHEETS, HTTP_CODES } from "../tools/CheatsheetTool";
+import { stripUrlPassword } from "../tools/UrlParserTool";
 import { eanCheckDigit, encodeBarcode, renderBarcodeSvg } from "../utils/barcode";
 import { computeLineDiff, convertBandwidth, convertByteUnits, convertRadix } from "../utils/math";
 
@@ -146,9 +148,9 @@ describe("Localization, manifest placement, and language setting", () => {
     expect(tx("en-US", "Copy", "复制")).toBe("Copy");
   });
 
-  it("declares secondary = true (Right Bottom), events capability, and version 0.4.1 in plugin.toml", () => {
+  it("declares secondary = true (Right Bottom), events capability, and version 0.4.2 in plugin.toml", () => {
     const manifest = fs.readFileSync(path.resolve(import.meta.dirname, "../../../plugin.toml"), "utf8");
-    expect(manifest).toMatch(/version\s*=\s*"0\.4\.1"/);
+    expect(manifest).toMatch(/version\s*=\s*"0\.4\.2"/);
     expect(manifest).toMatch(/location\s*=\s*"right"\s*\nsecondary\s*=\s*true/);
     expect(manifest).toContain('"events"');
     expect(manifest).toContain('"on-event:websocket-ready"');
@@ -182,6 +184,50 @@ describe("Localization, manifest placement, and language setting", () => {
       expect(meaningEn.trim().length).toBeGreaterThan(0);
       expect(meaningZh.trim().length).toBeGreaterThan(0);
       expect(meaningZh).toMatch(/[\u4e00-\u9fff]/);
+    }
+  });
+});
+
+describe("Secret persistence hygiene", () => {
+  it("drops legacy secret fields via pickAllowedKeys and strips passwords from persisted URLs", () => {
+    const legacy = {
+      subtab: "wallet",
+      wordCount: 24,
+      mnemonic: "abandon abandon about",
+      passphrase: "secret-pass",
+      privKey: "0xabc",
+      showSecrets: true,
+    };
+    const safe = pickAllowedKeys(legacy, { subtab: "wallet", wordCount: 12, account: 0 });
+    expect(safe).toEqual({ subtab: "wallet", wordCount: 24 });
+    expect("mnemonic" in safe).toBe(false);
+    expect("passphrase" in safe).toBe(false);
+    expect("privKey" in safe).toBe(false);
+
+    expect(stripUrlPassword("https://alice:hunter2@example.com/v1?x=1")).toBe("https://alice@example.com/v1?x=1");
+  });
+
+  it("never places wallet or cryptographic secret fields inside useToolState defaults", () => {
+    const toolsDir = path.resolve(import.meta.dirname, "../tools");
+    const checks: Array<[string, string[]]> = [
+      ["BlockchainTool.tsx", ["mnemonic:", "passphrase:", "privKey:", "privateKey:", "showSecrets:", "signature:"]],
+      ["TotpTool.tsx", ["secret:", "uriInput:"]],
+      ["AsymmetricTool.tsx", ["privateKey:"]],
+      ["SymmetricTool.tsx", ["key:", "iv:"]],
+      ["JwtTool.tsx", ["secret:", "token:"]],
+      ["HashTool.tsx", ["hmacKey:"]],
+      ["HttpClientTool.tsx", ["authToken:", "authPass:", "curlImport:"]],
+      ["WebSocketClientTool.tsx", ["headers:"]],
+      ["UrlParserTool.tsx", ["password:"]],
+    ];
+    for (const [file, forbiddenKeys] of checks) {
+      const src = fs.readFileSync(path.join(toolsDir, file), "utf8");
+      const m = src.match(/useToolState[\s\S]*?\(\s*[^,]+,\s*(\{[\s\S]*?\})\s*(?:,|\))/);
+      expect(m, `Missing useToolState defaults in ${file}`).not.toBeNull();
+      const defaultsBlock = m![1];
+      for (const k of forbiddenKeys) {
+        expect(defaultsBlock).not.toContain(k);
+      }
     }
   });
 });

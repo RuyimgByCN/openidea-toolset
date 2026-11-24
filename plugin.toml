@@ -1,11 +1,11 @@
 id = "ruyimg.toolset"
 name = "Toolset"
-version = "0.4.1"
+version = "0.4.2"
 description = "All-in-one developer toolset aligned with IntelliJ Toolset (43 tools): WebSocket client, TOTP/HOTP 2FA, X.509/PEM certificate inspector, 1D barcode generator (Code128/Code39/EAN/UPC/ITF/Codabar), offline Mock Data generator, CSV/TSV/Markdown/SQL table converter, Full/Half-width + RMB capital + Roman + Morse converter, URL parser/builder, JSON Repair/Flatten/Diff/JSONPath/Schema, string & regex rules, SQL toolkit, Markdown/HTML/BBCode/AsciiDoc, format converters, path, decimal calc, timestamp, Base32/58/85 codecs, radix/bytes, IP/CIDR, color, image, checksums, BLAKE2/Keccak256/RIPEMD160/SM3 hashes, AES/DES/RC4/SM4/XOR, RSA/SM2, JWT, offline HD wallet (BIP39/44), IDs, password, Cron, QR, ASCII art, HTTP/cURL (net:ask), Hosts, notes, Pomodoro, and 12 cheatsheets."
 authors = ["ruyimg"]
 homepage = "https://github.com/RuyimgByCN/openidea-toolset"
 license = "Apache-2.0"
-change-notes = "0.4.1 — Full English/Chinese bilingual localization for all 77 command descriptions and 26 HTTP status meanings in Developer Cheatsheets (with bilingual keyword search and copy feedback). 0.4.0 — Major IDEA Toolset parity release (43 tools, 46 commands): WebSocket Client, TOTP/HOTP 2FA & Base32, X.509/PEM Certificate Inspector, 7-format 1D Barcode Generator, Offline Mock Data Generator, CSV/Table Converter, Full-Width/RMB/Roman/Morse Converter, URL Parser, plus JSON Repair/Flatten/Diff, Base32/Base58/Base85/Binary codecs, and BLAKE2s/BLAKE2b/Keccak-256/RIPEMD-160 hashes."
+change-notes = "0.4.2 — Preserve string literals, escapes, dollar quotes, and line-comment newlines in lexical SQL & CSS minifiers/formatters; keep mnemonics, private keys, TOTP/JWT/symmetric/HMAC secrets, URL passwords, and sensitive auth headers strictly in memory with automatic upgrade scrubbing. 0.4.1 — Full English/Chinese bilingual localization for all 77 command descriptions and 26 HTTP status meanings in Developer Cheatsheets (with bilingual keyword search and copy feedback). 0.4.0 — Major IDEA Toolset parity release (43 tools, 46 commands): WebSocket Client, TOTP/HOTP 2FA & Base32, X.509/PEM Certificate Inspector, 7-format 1D Barcode Generator, Offline Mock Data Generator, CSV/Table Converter, Full-Width/RMB/Roman/Morse Converter, URL Parser, plus JSON Repair/Flatten/Diff, Base32/Base58/Base85/Binary codecs, and BLAKE2s/BLAKE2b/Keccak-256/RIPEMD-160 hashes."
 categories = ["tools"]
 icon = "icons/toolset.svg"
 icon-dark = "icons/toolset_dark.svg"

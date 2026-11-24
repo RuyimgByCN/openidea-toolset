@@ -226,18 +226,157 @@ pub fn save_language_pref(value: &str, current_setting: Option<&str>) -> Result<
 
 pub fn load_tool_state(tool_id: &str) -> Result<Option<Value>, Error> {
     let key = tool_key(tool_id)?;
-    load_json::<Value>(&key)
+    let Some(raw) = load_json::<Value>(&key)? else {
+        return Ok(None);
+    };
+    let (clean, changed) = sanitize_tool_state(tool_id, &raw);
+    if changed {
+        save_json(&key, &clean)?;
+    }
+    Ok(Some(clean))
 }
 
 pub fn save_tool_state(tool_id: &str, state: &Value) -> Result<(), Error> {
     let key = tool_key(tool_id)?;
+    let (clean, _) = sanitize_tool_state(tool_id, state);
     let existing = host::storage::keys(TOOL_PREFIX)?;
     if !existing.contains(&key) && existing.len() >= MAX_TOOL_KEYS {
         if let Some(oldest) = existing.first() {
             let _ = host::storage::delete(oldest);
         }
     }
-    save_json(&key, state)
+    save_json(&key, &clean)
+}
+
+pub fn is_sensitive_header_name(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "authorization"
+            | "proxy-authorization"
+            | "cookie"
+            | "set-cookie"
+            | "x-api-key"
+            | "api-key"
+            | "x-auth-token"
+    )
+}
+
+pub fn sanitize_http_active(req: &HttpActiveRequest) -> (HttpActiveRequest, bool) {
+    let mut clean = req.clone();
+    let before = clean.headers.len();
+    clean.headers.retain(|(k, _)| !is_sensitive_header_name(k));
+    let changed = clean.headers.len() != before;
+    (clean, changed)
+}
+
+pub fn sanitize_ws_active(cfg: &WsActiveConfig) -> (WsActiveConfig, bool) {
+    let mut clean = cfg.clone();
+    let before = clean.headers.len();
+    clean.headers.retain(|(k, _)| !is_sensitive_header_name(k));
+    let changed = clean.headers.len() != before;
+    (clean, changed)
+}
+
+pub fn sanitize_tool_state(tool_id: &str, state: &Value) -> (Value, bool) {
+    let Some(obj) = state.as_object() else {
+        return (state.clone(), false);
+    };
+    let mut map = obj.clone();
+    let mut changed = false;
+
+    let strip_keys: &[&str] = if tool_id == "blockchain" || tool_id.starts_with("blockchain-") {
+        &["mnemonic", "passphrase", "privKey", "privateKey", "seedHex", "showSecrets", "signature"]
+    } else if tool_id == "totp" || tool_id.starts_with("totp-") {
+        &["secret", "uriInput"]
+    } else if tool_id == "asymmetric" || tool_id.starts_with("asymmetric-") {
+        &["privateKey"]
+    } else if tool_id == "symmetric" || tool_id.starts_with("symmetric-") {
+        &["key", "iv"]
+    } else if tool_id == "jwt" || tool_id.starts_with("jwt-") {
+        &["secret", "token"]
+    } else if tool_id == "hash" || tool_id.starts_with("hash-") {
+        &["hmacKey"]
+    } else if tool_id == "http" || tool_id.starts_with("http-") {
+        &["authToken", "authPass", "curlImport"]
+    } else if tool_id == "ws" || tool_id.starts_with("ws-") {
+        &["headers"]
+    } else if tool_id == "urlparser" || tool_id.starts_with("urlparser-") {
+        &["password"]
+    } else {
+        &[]
+    };
+
+    for &k in strip_keys {
+        if map.remove(k).is_some() {
+            changed = true;
+        }
+    }
+
+    if (tool_id == "http" || tool_id.starts_with("http-"))
+        && let Some(Value::Array(hdrs)) = map.get_mut("headers")
+    {
+        let before = hdrs.len();
+        hdrs.retain(|item| {
+            if let Some(k) = item.get("key").and_then(Value::as_str) {
+                !is_sensitive_header_name(k)
+            } else if let Some(arr) = item.as_array()
+                && let Some(k) = arr.first().and_then(Value::as_str)
+            {
+                !is_sensitive_header_name(k)
+            } else {
+                true
+            }
+        });
+        if hdrs.len() != before {
+            changed = true;
+        }
+    }
+
+    if (tool_id == "urlparser" || tool_id.starts_with("urlparser-"))
+        && let Some(Value::String(raw_url)) = map.get_mut("rawUrl")
+    {
+        if let Some(scrubbed) = strip_url_password(raw_url) {
+            *raw_url = scrubbed;
+            changed = true;
+        }
+    }
+
+    (Value::Object(map), changed)
+}
+
+fn strip_url_password(raw: &str) -> Option<String> {
+    let scheme_end = raw.find("://")?;
+    let prefix = &raw[..scheme_end + 3];
+    let rest = &raw[scheme_end + 3..];
+    let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..auth_end];
+    let at_pos = authority.rfind('@')?;
+    let userinfo = &authority[..at_pos];
+    let colon_pos = userinfo.find(':')?;
+    let user = &userinfo[..colon_pos];
+    Some(format!("{prefix}{user}@{}", &rest[at_pos + 1..]))
+}
+
+pub fn scrub_persisted_secrets() {
+    if let Ok(keys) = host::storage::keys(TOOL_PREFIX) {
+        for key in keys {
+            if let Some(tool_id) = key.strip_prefix(TOOL_PREFIX) {
+                let _ = load_tool_state(tool_id);
+            }
+        }
+    }
+    if let Some(req) = load_active_http() {
+        let (clean, changed) = sanitize_http_active(&req);
+        if changed {
+            let _ = save_json(KEY_HTTP_ACTIVE, &clean);
+        }
+    }
+    if let Some(cfg) = load_active_ws() {
+        let (clean, changed) = sanitize_ws_active(&cfg);
+        if changed {
+            let _ = save_json(KEY_WS_ACTIVE, &clean);
+        }
+    }
 }
 
 fn tool_key(tool_id: &str) -> Result<String, Error> {

@@ -69,20 +69,21 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
   const [saved, setSaved] = useToolState("blockchain", {
     subtab: "wallet" as "wallet" | "sign" | "units",
     wordCount: 12,
-    mnemonic: DEFAULT_MNEMONIC,
-    passphrase: "",
     account: 0,
     index: 0,
-    showSecrets: false,
     signChain: "evm",
-    privKey: "",
     verifyTarget: "",
     message: "OpenIDEA Toolset Offline Signature",
-    signature: "",
     unitAsset: "ETH",
     unitVal: "1",
     unitSelected: "ETH",
   });
+  // Keep sensitive wallet credentials and private keys strictly in memory; never persist them.
+  const [mnemonic, setMnemonic] = useState(DEFAULT_MNEMONIC);
+  const [passphrase, setPassphrase] = useState("");
+  const [showSecrets, setShowSecrets] = useState(false);
+  const [privKey, setPrivKey] = useState("");
+  const [signature, setSignature] = useState("");
   const [wallet, setWallet] = useState<WalletResult | null>(null);
   const [signInfo, setSignInfo] = useState<string | null>(null);
   const [verifyRes, setVerifyRes] = useState<{ valid: boolean; recoveredAddress?: string } | null>(null);
@@ -90,7 +91,8 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
 
   useEffect(() => {
     if (initialInput != null) {
-      setSaved((p) => ({ ...p, subtab: "wallet", mnemonic: initialInput.trim() }));
+      setSaved((p) => ({ ...p, subtab: "wallet" }));
+      setMnemonic(initialInput.trim());
       onConsumeInitial?.();
     }
   }, [initialInput]);
@@ -100,8 +102,8 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
     const t = setTimeout(() => {
       bridge
         .rpc<WalletResult>("blockchain.derive", {
-          mnemonic: saved.mnemonic,
-          passphrase: saved.passphrase,
+          mnemonic,
+          passphrase,
           account: saved.account,
           index: saved.index,
         })
@@ -109,13 +111,13 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
         .catch((e) => { setWallet(null); setErr((e as Error).message); });
     }, 100);
     return () => clearTimeout(t);
-  }, [saved.subtab, saved.mnemonic, saved.passphrase, saved.account, saved.index]);
+  }, [saved.subtab, mnemonic, passphrase, saved.account, saved.index]);
 
   const genMnemonic = async () => {
     setErr(null);
     try {
       const r = await bridge.rpc<{ mnemonic: string }>("blockchain.generateMnemonic", { wordCount: saved.wordCount });
-      setSaved((p) => ({ ...p, mnemonic: r.mnemonic }));
+      setMnemonic(r.mnemonic);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -127,11 +129,11 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
     try {
       const r = await bridge.rpc<{ signature: string; signatureBase58?: string; signerAddress?: string; publicKey?: string }>(
         "blockchain.sign",
-        { chain: saved.signChain, privateKey: saved.privKey, message: saved.message },
+        { chain: saved.signChain, privateKey: privKey, message: saved.message },
       );
+      setSignature(r.signature);
       setSaved((p) => ({
         ...p,
-        signature: r.signature,
         verifyTarget: r.signerAddress ?? r.publicKey ?? p.verifyTarget,
       }));
       setSignInfo(
@@ -151,7 +153,7 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
         chain: saved.signChain,
         target: saved.verifyTarget,
         message: saved.message,
-        signature: saved.signature,
+        signature,
       });
       setVerifyRes(r);
     } catch (e) {
@@ -186,7 +188,7 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
     <div className="ts-tool">
       <div className="ts-tool-head">
         <span className="ts-tool-title">{tx(locale, "Blockchain & HD Wallet (Offline)", "区块链与 HD 钱包 (离线)")}</span>
-        <span className="ts-badge good">{tx(locale, "100% Offline · Zero Network", "纯离线 · 无网络请求")}</span>
+        <span className="ts-badge good">{tx(locale, "100% Offline · Keys in memory only", "纯离线 · 助记词/私钥仅存内存")}</span>
       </div>
 
       <div className="ts-row">
@@ -216,8 +218,8 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
               type="password"
               className="ts-input"
               style={{ width: 130 }}
-              value={saved.passphrase}
-              onChange={(e) => setSaved((p) => ({ ...p, passphrase: e.target.value }))}
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
               placeholder={tx(locale, "BIP39 passphrase", "可选密码短语")}
             />
             <label className="ts-row" style={{ gap: 4 }}>
@@ -229,7 +231,7 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
               <input type="number" className="ts-input mono" style={{ width: 55 }} min={0} value={saved.index} onChange={(e) => setSaved((p) => ({ ...p, index: Number(e.target.value) || 0 }))} />
             </label>
             <label className="ts-inline-check">
-              <input type="checkbox" checked={saved.showSecrets} onChange={(e) => setSaved((p) => ({ ...p, showSecrets: e.target.checked }))} />
+              <input type="checkbox" checked={showSecrets} onChange={(e) => setShowSecrets(e.target.checked)} />
               {tx(locale, "Reveal Keys", "显示私钥")}
             </label>
           </div>
@@ -237,8 +239,8 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
           <textarea
             className="ts-textarea mono"
             rows={2}
-            value={saved.mnemonic}
-            onChange={(e) => setSaved((p) => ({ ...p, mnemonic: e.target.value }))}
+            value={mnemonic}
+            onChange={(e) => setMnemonic(e.target.value)}
             placeholder={tx(locale, "12 or 24 BIP-39 words...", "输入 12 或 24 个 BIP-39 助记词...")}
           />
 
@@ -254,15 +256,15 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
                         <button
                           type="button"
                           className="ts-btn sm"
-                          onClick={() =>
+                          onClick={() => {
+                            setPrivKey(ch.privateKey);
                             setSaved((p) => ({
                               ...p,
                               subtab: "sign",
                               signChain: cid === "ethereum" ? "evm" : "ed25519",
-                              privKey: ch.privateKey,
                               verifyTarget: cid === "ethereum" ? ch.address : ch.publicKey,
-                            }))
-                          }
+                            }));
+                          }}
                         >
                           {tx(locale, "Use to Sign", "去签名")}
                         </button>
@@ -275,7 +277,7 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
                       {tx(locale, "Copy", "复制")}
                     </button>
                   </div>
-                  {saved.showSecrets && (
+                  {showSecrets && (
                     <div className="ts-kv" style={{ fontSize: 11 }}>
                       <span className="ts-kv-key">{tx(locale, "Private Key", "私钥")}</span>
                       <span className="ts-kv-val">{ch.privateKey}{ch.wif ? ` (WIF: ${ch.wif})` : ""}</span>
@@ -300,8 +302,8 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
           </div>
           <input
             className="ts-input mono"
-            value={saved.privKey}
-            onChange={(e) => setSaved((p) => ({ ...p, privKey: e.target.value }))}
+            value={privKey}
+            onChange={(e) => setPrivKey(e.target.value)}
             placeholder={tx(locale, "32-byte hex private key (for signing)", "32 字节十六进制私钥（用于签名）")}
           />
           <input
@@ -314,8 +316,8 @@ export default function BlockchainTool({ locale, initialInput, onConsumeInitial 
           <textarea
             className="ts-textarea mono"
             rows={2}
-            value={saved.signature}
-            onChange={(e) => setSaved((p) => ({ ...p, signature: e.target.value }))}
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
             placeholder={tx(locale, "Signature (0x... or Base58)", "签名值 (0x... 或 Base58)")}
           />
           {signInfo && <div className="ts-ok ts-mono">{signInfo}</div>}
