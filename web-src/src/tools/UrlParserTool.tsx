@@ -4,6 +4,9 @@ import { ToolActionBar } from "../components/ToolActionBar";
 import { useToolState } from "../hooks/useToolState";
 import { tx } from "../i18n";
 import type { ToolProps } from "../types";
+import { stripUrlPassword } from "../utils/urlSanitize";
+
+export { stripUrlPassword };
 
 interface QueryRow {
   id: string;
@@ -67,19 +70,6 @@ function parseUrlParts(raw: string): {
       segments: [],
       params: [],
     };
-  }
-}
-
-export function stripUrlPassword(raw: string): string {
-  try {
-    const u = new URL(raw.trim());
-    if (u.password) {
-      u.password = "";
-      return u.toString();
-    }
-    return raw;
-  } catch {
-    return raw.replace(/(:\/\/[^:/?#\s@]+):[^/?#@\s]+@/g, "$1@");
   }
 }
 

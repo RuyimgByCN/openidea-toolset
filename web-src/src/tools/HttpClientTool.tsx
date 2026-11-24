@@ -4,6 +4,7 @@ import { ToolActionBar } from "../components/ToolActionBar";
 import { useToolState } from "../hooks/useToolState";
 import { tx } from "../i18n";
 import type { HttpPushResponse, ToolProps } from "../types";
+import { stripUrlPassword } from "../utils/urlSanitize";
 
 interface KvRow {
   enabled: boolean;
@@ -78,6 +79,7 @@ export default function HttpClientTool({
     },
     (state) => ({
       ...state,
+      url: stripUrlPassword(state.url),
       headers: state.headers.filter((h) => !isSensitiveHeaderKey(h.key)),
     }),
   );

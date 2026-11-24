@@ -714,6 +714,36 @@ fn consume_sql_quoted(chars: &[char], start: usize) -> (String, usize) {
     (buf, i)
 }
 
+fn parse_sql_prefixed_literal(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let first = *chars.get(start)?;
+    if first.eq_ignore_ascii_case(&'u')
+        && chars.get(start + 1) == Some(&'&')
+        && matches!(chars.get(start + 2), Some('\'' | '"'))
+    {
+        let (quoted, next) = consume_sql_quoted(chars, start + 2);
+        let prefix: String = chars[start..start + 2].iter().collect();
+        return Some((format!("{prefix}{quoted}"), next));
+    }
+    if matches!(first.to_ascii_lowercase(), 'x' | 'b' | 'n' | 'e' | 'r' | 'q')
+        && chars.get(start + 1) == Some(&'\'')
+    {
+        let (quoted, next) = consume_sql_quoted(chars, start + 1);
+        return Some((format!("{first}{quoted}"), next));
+    }
+    if first == '_' {
+        let mut j = start + 1;
+        while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
+            j += 1;
+        }
+        if j > start + 1 && chars.get(j) == Some(&'\'') {
+            let prefix: String = chars[start..j].iter().collect();
+            let (quoted, next) = consume_sql_quoted(chars, j);
+            return Some((format!("{prefix}{quoted}"), next));
+        }
+    }
+    None
+}
+
 fn tokenize_sql(input: &str) -> Vec<SqlTok> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = input.chars().collect();
@@ -752,6 +782,11 @@ fn tokenize_sql(input: &str) -> Vec<SqlTok> {
             tokens.push(SqlTok { kind: SqlTokKind::BlockComment, text: buf });
             continue;
         }
+        if let Some((buf, next)) = parse_sql_prefixed_literal(&chars, i) {
+            tokens.push(SqlTok { kind: SqlTokKind::StringOrIdent, text: buf });
+            i = next;
+            continue;
+        }
         if c == '\'' || c == '"' || c == '`' {
             let (buf, next) = consume_sql_quoted(&chars, i);
             tokens.push(SqlTok { kind: SqlTokKind::StringOrIdent, text: buf });
@@ -788,6 +823,9 @@ fn tokenize_sql(input: &str) -> Vec<SqlTok> {
             && !matches!(chars[i], ',' | ';' | '(' | ')' | '.' | '\'' | '"' | '`' | '#')
             && !(chars[i] == '-' && chars.get(i + 1) == Some(&'-'))
             && !(chars[i] == '/' && chars.get(i + 1) == Some(&'*'))
+            && !(!buf.is_empty()
+                && buf.chars().last().is_some_and(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'))
+                && parse_sql_prefixed_literal(&chars, i).is_some())
         {
             buf.push(chars[i]);
             i += 1;

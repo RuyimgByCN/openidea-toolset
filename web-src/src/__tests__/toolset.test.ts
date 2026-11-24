@@ -9,6 +9,7 @@ import { COMMAND_SHEETS, HTTP_CODES } from "../tools/CheatsheetTool";
 import { stripUrlPassword } from "../tools/UrlParserTool";
 import { eanCheckDigit, encodeBarcode, renderBarcodeSvg } from "../utils/barcode";
 import { computeLineDiff, convertBandwidth, convertByteUnits, convertRadix } from "../utils/math";
+import { stripUrlPassword as stripUrlPasswordDirect } from "../utils/urlSanitize";
 
 describe("registry parity with Rust catalog", () => {
   it("contains all 43 unique tools matching src/catalog.rs categories and ids", () => {
@@ -148,9 +149,9 @@ describe("Localization, manifest placement, and language setting", () => {
     expect(tx("en-US", "Copy", "复制")).toBe("Copy");
   });
 
-  it("declares secondary = true (Right Bottom), events capability, and version 0.4.2 in plugin.toml", () => {
+  it("declares secondary = true (Right Bottom), events capability, and version 0.4.3 in plugin.toml", () => {
     const manifest = fs.readFileSync(path.resolve(import.meta.dirname, "../../../plugin.toml"), "utf8");
-    expect(manifest).toMatch(/version\s*=\s*"0\.4\.2"/);
+    expect(manifest).toMatch(/version\s*=\s*"0\.4\.3"/);
     expect(manifest).toMatch(/location\s*=\s*"right"\s*\nsecondary\s*=\s*true/);
     expect(manifest).toContain('"events"');
     expect(manifest).toContain('"on-event:websocket-ready"');
@@ -205,6 +206,23 @@ describe("Secret persistence hygiene", () => {
     expect("privKey" in safe).toBe(false);
 
     expect(stripUrlPassword("https://alice:hunter2@example.com/v1?x=1")).toBe("https://alice@example.com/v1?x=1");
+    expect(stripUrlPasswordDirect("wss://alice:SYNTHETIC-WS-PASSWORD@echo.websocket.org/socket")).toBe(
+      "wss://alice@echo.websocket.org/socket",
+    );
+    expect(stripUrlPasswordDirect("https://:SYNTHETIC-HTTP-PASSWORD@example.test/private")).toBe(
+      "https://example.test/private",
+    );
+    expect(stripUrlPasswordDirect("wss://:secret@[::1")).toBe("wss://[::1");
+
+    const toolsDir = path.resolve(import.meta.dirname, "../tools");
+    for (const [file, field] of [
+      ["HttpClientTool.tsx", "url: stripUrlPassword(state.url)"],
+      ["WebSocketClientTool.tsx", "url: stripUrlPassword(state.url)"],
+      ["UrlParserTool.tsx", "rawUrl: stripUrlPassword(state.rawUrl)"],
+    ]) {
+      const src = fs.readFileSync(path.join(toolsDir, file), "utf8");
+      expect(src).toContain(field);
+    }
   });
 
   it("never places wallet or cryptographic secret fields inside useToolState defaults", () => {
