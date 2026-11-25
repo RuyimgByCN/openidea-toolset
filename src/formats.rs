@@ -511,18 +511,169 @@ fn scalar_str(v: &Value) -> String {
     }
 }
 
-fn properties_to_json(input: &str) -> Result<Value, Error> {
-    let mut root = Value::Object(Map::new());
-    for raw in input.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+fn count_trailing_backslashes(s: &str) -> usize {
+    s.bytes().rev().take_while(|b| *b == b'\\').count()
+}
+
+fn escape_properties_key(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    for ch in key.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\x0c' => out.push_str("\\f"),
+            '=' => out.push_str("\\="),
+            ':' => out.push_str("\\:"),
+            ' ' => out.push_str("\\ "),
+            '#' => out.push_str("\\#"),
+            '!' => out.push_str("\\!"),
+            c if (c as u32) < 0x20 || (c as u32) == 0x7f => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn escape_properties_value(val: &str) -> String {
+    let mut out = String::with_capacity(val.len());
+    let mut leading = true;
+    for ch in val.chars() {
+        if ch == ' ' && leading {
+            out.push_str("\\ ");
             continue;
         }
-        let Some((k, v)) = line.split_once('=').or_else(|| line.split_once(':')) else {
+        leading = false;
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\x0c' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 || (c as u32) == 0x7f => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn unescape_properties_token(raw: &str) -> Result<String, Error> {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
             continue;
+        }
+        let Some(esc) = chars.next() else {
+            break;
         };
-        let parts: Vec<&str> = k.trim().split('.').collect();
-        insert_nested(&mut root, &parts, Value::String(v.trim().to_owned()));
+        match esc {
+            't' => out.push('\t'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            'f' => out.push('\x0c'),
+            'u' => {
+                let mut hex = String::with_capacity(4);
+                for _ in 0..4 {
+                    if let Some(h) = chars.next() {
+                        hex.push(h);
+                    }
+                }
+                if hex.len() != 4 {
+                    return Err(Error::Invalid(format!("Invalid \\uXXXX escape in .properties: \\u{hex}")));
+                }
+                let code = u32::from_str_radix(&hex, 16)
+                    .map_err(|_| Error::Invalid(format!("Invalid \\uXXXX escape in .properties: \\u{hex}")))?;
+                let c = char::from_u32(code)
+                    .ok_or_else(|| Error::Invalid(format!("Invalid Unicode scalar \\u{hex}")))?;
+                out.push(c);
+            }
+            other => out.push(other),
+        }
+    }
+    Ok(out)
+}
+
+fn properties_to_json(input: &str) -> Result<Value, Error> {
+    let norm = input.replace("\r\n", "\n").replace('\r', "\n");
+    let mut logical = Vec::new();
+    let mut buf = String::new();
+    let mut in_cont = false;
+    for raw_line in norm.split('\n') {
+        let stripped = raw_line.trim_start_matches([' ', '\t', '\x0c']);
+        if !in_cont {
+            if stripped.is_empty() || stripped.starts_with('#') || stripped.starts_with('!') {
+                continue;
+            }
+            if count_trailing_backslashes(stripped) % 2 == 1 {
+                buf.clear();
+                buf.push_str(&stripped[..stripped.len() - 1]);
+                in_cont = true;
+            } else {
+                logical.push(stripped.to_owned());
+            }
+        } else if count_trailing_backslashes(stripped) % 2 == 1 {
+            buf.push_str(&stripped[..stripped.len() - 1]);
+        } else {
+            buf.push_str(stripped);
+            logical.push(std::mem::take(&mut buf));
+            in_cont = false;
+        }
+    }
+    if in_cont {
+        logical.push(buf);
+    }
+
+    let mut root = Value::Object(Map::new());
+    for entry in logical {
+        let bytes = entry.as_bytes();
+        let mut i = 0usize;
+        let mut key_end = bytes.len();
+        let mut val_start = bytes.len();
+        while i < bytes.len() {
+            if bytes[i] == b'\\' {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'=' || bytes[i] == b':' {
+                key_end = i;
+                let mut j = i + 1;
+                while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\x0c') {
+                    j += 1;
+                }
+                val_start = j;
+                break;
+            }
+            if matches!(bytes[i], b' ' | b'\t' | b'\x0c') {
+                key_end = i;
+                let mut j = i + 1;
+                while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\x0c') {
+                    j += 1;
+                }
+                if j < bytes.len() && (bytes[j] == b'=' || bytes[j] == b':') {
+                    j += 1;
+                    while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\x0c') {
+                        j += 1;
+                    }
+                }
+                val_start = j;
+                break;
+            }
+            i += 1;
+        }
+        let k = unescape_properties_token(&entry[..key_end])?;
+        if k.is_empty() {
+            continue;
+        }
+        let v = unescape_properties_token(&entry[val_start..])?;
+        let parts: Vec<&str> = k.split('.').collect();
+        insert_nested(&mut root, &parts, Value::String(v));
     }
     Ok(root)
 }
@@ -563,9 +714,25 @@ fn flatten_props(prefix: &str, val: &Value, out: &mut Vec<String>) {
                 flatten_props(&next, v, out);
             }
         }
-        Value::Null => out.push(format!("{prefix}=")),
-        Value::String(s) => out.push(format!("{prefix}={s}")),
-        other => out.push(format!("{prefix}={other}")),
+        Value::Null => {
+            if !prefix.is_empty() {
+                out.push(format!("{}=", escape_properties_key(prefix)));
+            }
+        }
+        Value::String(s) => {
+            if !prefix.is_empty() {
+                out.push(format!("{}={}", escape_properties_key(prefix), escape_properties_value(s)));
+            }
+        }
+        other => {
+            if !prefix.is_empty() {
+                out.push(format!(
+                    "{}={}",
+                    escape_properties_key(prefix),
+                    escape_properties_value(&other.to_string())
+                ));
+            }
+        }
     }
 }
 

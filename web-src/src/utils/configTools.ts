@@ -645,28 +645,164 @@ export function parseEnvToFlat(raw: string): Record<string, string> {
   return out;
 }
 
-export function parsePropertiesToFlat(raw: string): Record<string, string> {
-  const lines = raw.replace(/\r\n/g, "\n").split("\n");
-  const logical: string[] = [];
-  let buf = "";
-  for (const line of lines) {
-    const trimmedStart = line.trimStart();
-    if (!buf && (!trimmedStart || trimmedStart.startsWith("#") || trimmedStart.startsWith("!"))) {
-      continue;
-    }
-    if (line.endsWith("\\") && !line.endsWith("\\\\")) {
-      buf += line.slice(0, -1);
-    } else {
-      buf += trimmedStart;
-      logical.push(buf);
-      buf = "";
+function countTrailingBackslashes(s: string): number {
+  let n = 0;
+  for (let i = s.length - 1; i >= 0 && s[i] === "\\"; i--) n++;
+  return n;
+}
+
+export function escapePropertiesKey(key: string): string {
+  let out = "";
+  for (let i = 0; i < key.length; i++) {
+    const ch = key[i];
+    const code = ch.charCodeAt(0);
+    switch (ch) {
+      case "\\":
+        out += "\\\\";
+        break;
+      case "\t":
+        out += "\\t";
+        break;
+      case "\n":
+        out += "\\n";
+        break;
+      case "\r":
+        out += "\\r";
+        break;
+      case "\f":
+        out += "\\f";
+        break;
+      case "=":
+        out += "\\=";
+        break;
+      case ":":
+        out += "\\:";
+        break;
+      case " ":
+        out += "\\ ";
+        break;
+      case "#":
+        out += "\\#";
+        break;
+      case "!":
+        out += "\\!";
+        break;
+      default:
+        out += code < 0x20 || code === 0x7f ? `\\u${code.toString(16).padStart(4, "0")}` : ch;
     }
   }
-  if (buf) logical.push(buf);
+  return out;
+}
 
-  const out: Record<string, string> = {};
+export function escapePropertiesValue(val: string): string {
+  let out = "";
+  let leading = true;
+  for (let i = 0; i < val.length; i++) {
+    const ch = val[i];
+    const code = ch.charCodeAt(0);
+    if (ch === " " && leading) {
+      out += "\\ ";
+      continue;
+    }
+    leading = false;
+    switch (ch) {
+      case "\\":
+        out += "\\\\";
+        break;
+      case "\t":
+        out += "\\t";
+        break;
+      case "\n":
+        out += "\\n";
+        break;
+      case "\r":
+        out += "\\r";
+        break;
+      case "\f":
+        out += "\\f";
+        break;
+      default:
+        out += code < 0x20 || code === 0x7f ? `\\u${code.toString(16).padStart(4, "0")}` : ch;
+    }
+  }
+  return out;
+}
+
+function unescapePropertiesToken(raw: string): string {
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch !== "\\") {
+      out += ch;
+      continue;
+    }
+    if (i + 1 >= raw.length) break;
+    i++;
+    const esc = raw[i];
+    switch (esc) {
+      case "t":
+        out += "\t";
+        break;
+      case "n":
+        out += "\n";
+        break;
+      case "r":
+        out += "\r";
+        break;
+      case "f":
+        out += "\f";
+        break;
+      case "u": {
+        const hex = raw.slice(i + 1, i + 5);
+        if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+          throw new Error(`Invalid \\uXXXX escape in .properties: \\u${hex}`);
+        }
+        out += String.fromCharCode(Number.parseInt(hex, 16));
+        i += 4;
+        break;
+      }
+      default:
+        out += esc;
+    }
+  }
+  return out;
+}
+
+export function parsePropertiesToFlat(raw: string): Record<string, string> {
+  const lines = raw.replace(/\r\n|\r/g, "\n").split("\n");
+  const logical: string[] = [];
+  let buf = "";
+  let inContinuation = false;
+
+  for (const line of lines) {
+    if (!inContinuation) {
+      const trimmedStart = line.replace(/^[ \t\f]+/, "");
+      if (!trimmedStart || trimmedStart.startsWith("#") || trimmedStart.startsWith("!")) {
+        continue;
+      }
+      if (countTrailingBackslashes(trimmedStart) % 2 === 1) {
+        buf = trimmedStart.slice(0, -1);
+        inContinuation = true;
+      } else {
+        logical.push(trimmedStart);
+      }
+    } else {
+      const stripped = line.replace(/^[ \t\f]+/, "");
+      if (countTrailingBackslashes(stripped) % 2 === 1) {
+        buf += stripped.slice(0, -1);
+      } else {
+        logical.push(buf + stripped);
+        buf = "";
+        inContinuation = false;
+      }
+    }
+  }
+  if (inContinuation) logical.push(buf);
+
+  const out: Record<string, string> = Object.create(null);
   for (const entry of logical) {
-    let sep = -1;
+    let keyEnd = entry.length;
+    let valStart = entry.length;
     for (let i = 0; i < entry.length; i++) {
       const ch = entry[i];
       if (ch === "\\") {
@@ -674,23 +810,30 @@ export function parsePropertiesToFlat(raw: string): Record<string, string> {
         continue;
       }
       if (ch === "=" || ch === ":") {
-        sep = i;
+        keyEnd = i;
+        let j = i + 1;
+        while (j < entry.length && (entry[j] === " " || entry[j] === "\t" || entry[j] === "\f")) j++;
+        valStart = j;
+        break;
+      }
+      if (ch === " " || ch === "\t" || ch === "\f") {
+        keyEnd = i;
+        let j = i + 1;
+        while (j < entry.length && (entry[j] === " " || entry[j] === "\t" || entry[j] === "\f")) j++;
+        if (j < entry.length && (entry[j] === "=" || entry[j] === ":")) {
+          j++;
+          while (j < entry.length && (entry[j] === " " || entry[j] === "\t" || entry[j] === "\f")) j++;
+        }
+        valStart = j;
         break;
       }
     }
-    if (sep <= 0) continue;
-    const k = entry.slice(0, sep).trim();
-    const v = entry
-      .slice(sep + 1)
-      .trimStart()
-      .replace(/\\n/g, "\n")
-      .replace(/\\t/g, "\t")
-      .replace(/\\:/g, ":")
-      .replace(/\\=/g, "=")
-      .replace(/\\\\/g, "\\");
+    const k = unescapePropertiesToken(entry.slice(0, keyEnd));
+    if (!k || k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    const v = unescapePropertiesToken(entry.slice(valStart));
     out[k] = v;
   }
-  return out;
+  return JSON.parse(JSON.stringify(out)) as Record<string, string>;
 }
 
 function flattenObject(val: unknown, prefix = "", out: Record<string, string> = {}): Record<string, string> {
@@ -876,13 +1019,13 @@ export function serializeFlatConfig(flat: Record<string, string>, to: ConfigFmt)
     return entries
       .map(([k, v]) => {
         const key = propKeyToEnvKey(k);
-        const val = /[\s#"']/.test(v) ? JSON.stringify(v) : v;
+        const val = /[\\\s#"'\r\n]/.test(v) ? JSON.stringify(v) : v;
         return `${key}=${val}`;
       })
       .join("\n");
   }
   if (to === "properties") {
-    return entries.map(([k, v]) => `${k}=${v.replace(/\n/g, "\\n")}`).join("\n");
+    return entries.map(([k, v]) => `${escapePropertiesKey(k)}=${escapePropertiesValue(v)}`).join("\n");
   }
   const tree = unflattenToObject(flat);
   return serializeTreeConfig(tree, to);
@@ -898,6 +1041,9 @@ export function convertConfig(
   }
   try {
     const tree = parseConfigToTree(input, from);
+    if ((to === "properties" || to === "env") && (tree === null || typeof tree !== "object")) {
+      throw new Error(`Top-level ${tree === null ? "null" : typeof tree} cannot be converted to ${to}`);
+    }
     const output = serializeTreeConfig(tree, to);
     const count = from === "yaml" || from === "json" ? countTreeLeaves(tree) : Object.keys(flattenObject(tree)).length;
     return { output, count, error: null };

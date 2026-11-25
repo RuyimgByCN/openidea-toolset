@@ -2676,4 +2676,19 @@ mod tests {
         assert_eq!(indexed_group["count"], 1);
         assert_eq!(indexed_group["matches"][0]["value"], "C");
     }
+
+    #[test]
+    fn json_to_properties_format_converter_escapes_backslashes_and_roundtrips() {
+        let input = r#"{"app":{"path":"C:\\temp\\","mode":"safe","data":"C:\\temp\\data"}}"#;
+        let props = formats::convert_format(input, "json", "properties", "2").unwrap();
+        assert!(props.contains("app.path=C:\\\\temp\\\\"));
+        assert!(props.contains("app.mode=safe"));
+        assert!(props.contains("app.data=C:\\\\temp\\\\data"));
+
+        let back = formats::convert_format(&props, "properties", "json", "2").unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&back).unwrap();
+        assert_eq!(parsed["app"]["path"], "C:\\temp\\");
+        assert_eq!(parsed["app"]["mode"], "safe");
+        assert_eq!(parsed["app"]["data"], "C:\\temp\\data");
+    }
 }

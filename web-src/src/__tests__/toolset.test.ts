@@ -174,9 +174,9 @@ describe("Localization, manifest placement, and language setting", () => {
     expect(tx("en-US", "Copy", "复制")).toBe("Copy");
   });
 
-  it("declares secondary = true (Right Bottom), events capability, and version 0.6.2 in plugin.toml", () => {
+  it("declares secondary = true (Right Bottom), events capability, and version 0.6.3 in plugin.toml", () => {
     const manifest = fs.readFileSync(path.resolve(import.meta.dirname, "../../../plugin.toml"), "utf8");
-    expect(manifest).toMatch(/version\s*=\s*"0\.6\.2"/);
+    expect(manifest).toMatch(/version\s*=\s*"0\.6\.3"/);
     expect(manifest).toMatch(/location\s*=\s*"right"\s*\nsecondary\s*=\s*true/);
     expect(manifest).toContain('"events"');
     expect(manifest).toContain('"on-event:websocket-ready"');
@@ -524,5 +524,42 @@ describe("v0.6.0 IDEA Toolset 2026.4.1 upgrades & 5 new tools", () => {
       expect(res.error).toBeTruthy();
       expect(res.output).toBe("");
     }
+  });
+
+  it("escapes Java .properties backslashes, control chars, leading spaces, and special keys for lossless round-trip", () => {
+    const winJson = JSON.stringify({ app: { path: "C:\\temp\\", mode: "safe" } });
+    const toProps = convertConfig(winJson, "json", "properties");
+    expect(toProps.error).toBeNull();
+    expect(toProps.output).toBe("app.path=C:\\\\temp\\\\\napp.mode=safe");
+
+    const backToJson = convertConfig(toProps.output, "properties", "json");
+    expect(backToJson.error).toBeNull();
+    expect(JSON.parse(backToJson.output)).toEqual({
+      app: { path: "C:\\temp\\", mode: "safe" },
+    });
+
+    const complex = {
+      app: {
+        data: "C:\\temp\\data",
+        lead: "  padded  ",
+        multi: "line1\nline2\tindented\r\f",
+      },
+      "k=1:2 #!": "v=1:2",
+    };
+    const propsRes = convertConfig(JSON.stringify(complex), "json", "properties");
+    expect(propsRes.error).toBeNull();
+    expect(propsRes.output).toContain("app.data=C:\\\\temp\\\\data");
+    expect(propsRes.output).toContain("app.lead=\\ \\ padded  ");
+    expect(propsRes.output).toContain("app.multi=line1\\nline2\\tindented\\r\\f");
+    expect(propsRes.output).toContain("k\\=1\\:2\\ \\#\\!=v=1:2");
+
+    const roundTrip = convertConfig(propsRes.output, "properties", "json");
+    expect(roundTrip.error).toBeNull();
+    expect(JSON.parse(roundTrip.output)).toEqual(complex);
+
+    // Top-level scalar -> properties fails rather than emitting blank Apply output
+    const scalarErr = convertConfig('"just-a-string"', "json", "properties");
+    expect(scalarErr.error).toBeTruthy();
+    expect(scalarErr.output).toBe("");
   });
 });
