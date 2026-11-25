@@ -105,7 +105,15 @@ export default function SpringConfigTool({ locale, initialInput, onConsumeInitia
             if (saved.tab === "convert") setConvertInput(t);
             else setLeftText(t);
           }}
-          outputText={saved.tab === "convert" ? converted.output : diffReport}
+          outputText={
+            saved.tab === "convert"
+              ? converted.error
+                ? undefined
+                : converted.output
+              : diffed.error
+                ? undefined
+                : diffReport
+          }
           openTabTitle={saved.tab === "convert" ? "config-converted" : "config-diff-report.txt"}
           onClear={() => {
             if (saved.tab === "convert") setConvertInput("");

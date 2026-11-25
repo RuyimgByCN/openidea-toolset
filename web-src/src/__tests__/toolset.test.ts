@@ -174,9 +174,9 @@ describe("Localization, manifest placement, and language setting", () => {
     expect(tx("en-US", "Copy", "复制")).toBe("Copy");
   });
 
-  it("declares secondary = true (Right Bottom), events capability, and version 0.6.1 in plugin.toml", () => {
+  it("declares secondary = true (Right Bottom), events capability, and version 0.6.2 in plugin.toml", () => {
     const manifest = fs.readFileSync(path.resolve(import.meta.dirname, "../../../plugin.toml"), "utf8");
-    expect(manifest).toMatch(/version\s*=\s*"0\.6\.1"/);
+    expect(manifest).toMatch(/version\s*=\s*"0\.6\.2"/);
     expect(manifest).toMatch(/location\s*=\s*"right"\s*\nsecondary\s*=\s*true/);
     expect(manifest).toContain('"events"');
     expect(manifest).toContain('"on-event:websocket-ready"');
@@ -480,5 +480,49 @@ describe("v0.6.0 IDEA Toolset 2026.4.1 upgrades & 5 new tools", () => {
     expect(jsx).toContain("export function CheckIcon");
     expect(jsx).toContain("strokeWidth=");
     expect(jsx).toContain("fillRule=");
+  });
+
+  it("preserves YAML scalar types, mapping sequences, round-trips cleanly, and rejects unsupported YAML", () => {
+    const quoted = convertConfig('account:\n  code: "00123"\n  enabled: "false"', "yaml", "json");
+    expect(quoted.error).toBeNull();
+    expect(JSON.parse(quoted.output)).toEqual({
+      account: { code: "00123", enabled: "false" },
+    });
+
+    const seq = convertConfig(
+      "servers:\n  - host: api.example.test\n    port: 8080\n  - host: backup.example.test\n    port: 8443",
+      "yaml",
+      "json",
+    );
+    expect(seq.error).toBeNull();
+    expect(JSON.parse(seq.output)).toEqual({
+      servers: [
+        { host: "api.example.test", port: 8080 },
+        { host: "backup.example.test", port: 8443 },
+      ],
+    });
+
+    // Round-trip JSON -> YAML -> JSON preserves leading-zero strings, booleans-as-strings, and nested sequences
+    const original = {
+      account: { code: "00123", enabled: "false", active: true, retries: 3 },
+      servers: [{ host: "api.example.test", port: 8080, tags: ["primary", "001"] }],
+    };
+    const asYaml = convertConfig(JSON.stringify(original, null, 2), "json", "yaml");
+    expect(asYaml.error).toBeNull();
+    const roundTripped = convertConfig(asYaml.output, "yaml", "json");
+    expect(roundTripped.error).toBeNull();
+    expect(JSON.parse(roundTripped.output)).toEqual(original);
+
+    // Unsupported or malformed YAML returns an error and empty output so Apply to Editor is disabled
+    for (const bad of [
+      "base: &a\n  x: 1\ncopy: *a",
+      "a:\n\tb: 1",
+      "a: 1\n---\nb: 2",
+      'a: "unclosed',
+    ]) {
+      const res = convertConfig(bad, "yaml", "json");
+      expect(res.error).toBeTruthy();
+      expect(res.output).toBe("");
+    }
   });
 });

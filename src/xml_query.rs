@@ -619,10 +619,10 @@ fn eval_xpath_single(doc: &XmlDoc, expr: &str) -> Result<Vec<QueryResultItem>, E
             return Ok(results);
         }
 
-        let next_nodes: Vec<usize> = match (&current, step.descendant) {
+        let filtered: Vec<usize> = match (&current, step.descendant) {
             (None, false) => {
-                // Step `/tag` directly matches root element(s)
-                if test == "." {
+                // Step `/tag[preds]` evaluates predicates over root elements matching `test`.
+                let roots = if test == "." {
                     doc.roots.clone()
                 } else {
                     doc.roots
@@ -630,58 +630,85 @@ fn eval_xpath_single(doc: &XmlDoc, expr: &str) -> Result<Vec<QueryResultItem>, E
                         .copied()
                         .filter(|&id| match_tag(&doc.node(id).tag, test))
                         .collect()
-                }
+                };
+                apply_xpath_predicates(doc, roots, &step.predicates)?
             }
             (None, true) => {
-                // Step `//tag` searches roots + all descendants
-                let mut pool = Vec::new();
-                for &r in &doc.roots {
-                    pool.push(r);
-                    doc.descendants(r, &mut pool);
+                // Step `//tag[preds]` == `/descendant-or-self::node()/child::tag[preds]`:
+                // apply positional predicates independently within each context container (virtual root + every element).
+                let mut matched = BTreeSet::new();
+                let root_cands: Vec<usize> = if test == "." {
+                    doc.roots.clone()
+                } else {
+                    doc.roots
+                        .iter()
+                        .copied()
+                        .filter(|&id| match_tag(&doc.node(id).tag, test))
+                        .collect()
+                };
+                matched.extend(apply_xpath_predicates(doc, root_cands, &step.predicates)?);
+
+                for ctx_id in 0..doc.nodes.len() {
+                    let cands: Vec<usize> = if test == "." {
+                        vec![ctx_id]
+                    } else {
+                        doc.child_elements(ctx_id)
+                            .into_iter()
+                            .filter(|&cid| match_tag(&doc.node(cid).tag, test))
+                            .collect()
+                    };
+                    if !cands.is_empty() {
+                        matched.extend(apply_xpath_predicates(doc, cands, &step.predicates)?);
+                    }
                 }
-                pool.into_iter()
-                    .filter(|&id| match_tag(&doc.node(id).tag, test))
-                    .collect()
+                matched.into_iter().collect()
             }
             (Some(prev), false) => {
-                if test == "." {
-                    prev.clone()
-                } else if test == ".." {
-                    let mut seen = BTreeSet::new();
-                    prev.iter()
-                        .filter_map(|&id| doc.node(id).parent)
-                        .filter(|pid| seen.insert(*pid))
-                        .collect()
-                } else {
-                    let mut out = Vec::new();
-                    for &pid in prev {
-                        for cid in doc.child_elements(pid) {
-                            if match_tag(&doc.node(cid).tag, test) {
-                                out.push(cid);
-                            }
-                        }
+                let mut matched = BTreeSet::new();
+                for &pid in prev {
+                    let cands: Vec<usize> = if test == "." {
+                        vec![pid]
+                    } else if test == ".." {
+                        doc.node(pid).parent.into_iter().collect()
+                    } else {
+                        doc.child_elements(pid)
+                            .into_iter()
+                            .filter(|&cid| match_tag(&doc.node(cid).tag, test))
+                            .collect()
+                    };
+                    if !cands.is_empty() {
+                        matched.extend(apply_xpath_predicates(doc, cands, &step.predicates)?);
                     }
-                    out
                 }
+                matched.into_iter().collect()
             }
             (Some(prev), true) => {
-                let mut seen = BTreeSet::new();
-                let mut out = Vec::new();
+                // Step `...//tag[preds]` evaluates predicates within each descendant-or-self container context.
+                let mut containers = BTreeSet::new();
                 for &pid in prev {
-                    let mut pool = Vec::new();
-                    pool.push(pid);
-                    doc.descendants(pid, &mut pool);
-                    for cid in pool {
-                        if match_tag(&doc.node(cid).tag, test) && seen.insert(cid) {
-                            out.push(cid);
-                        }
+                    containers.insert(pid);
+                    let mut desc = Vec::new();
+                    doc.descendants(pid, &mut desc);
+                    containers.extend(desc);
+                }
+                let mut matched = BTreeSet::new();
+                for ctx_id in containers {
+                    let cands: Vec<usize> = if test == "." {
+                        vec![ctx_id]
+                    } else {
+                        doc.child_elements(ctx_id)
+                            .into_iter()
+                            .filter(|&cid| match_tag(&doc.node(cid).tag, test))
+                            .collect()
+                    };
+                    if !cands.is_empty() {
+                        matched.extend(apply_xpath_predicates(doc, cands, &step.predicates)?);
                     }
                 }
-                out
+                matched.into_iter().collect()
             }
         };
 
-        let filtered = apply_xpath_predicates(doc, next_nodes, &step.predicates)?;
         current = Some(filtered);
     }
 

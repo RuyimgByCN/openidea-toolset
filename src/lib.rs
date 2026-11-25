@@ -2620,4 +2620,60 @@ mod tests {
         assert_eq!(html_css["count"], 1);
         assert_eq!(html_css["matches"][0]["value"], "Hello");
     }
+
+    #[test]
+    fn xml_query_rpc_evaluates_xpath_positional_predicates_per_parent_context() {
+        let host = MockHost::install().with_capabilities(&["storage"]);
+        let mut plugin = Toolset::default();
+        plugin.activate(&host.context("ruyimg.toolset")).unwrap();
+
+        let xml = "<r><g><item>A</item><item>B</item></g><g><item>C</item><item>D</item></g></r>";
+
+        let first_per_parent = call_view_rpc(
+            &mut plugin,
+            &host,
+            1,
+            "xml.query",
+            json!({ "xml": xml, "query": "//g/item[1]/text()", "mode": "xpath", "html": false }),
+        );
+        assert_eq!(first_per_parent["count"], 2);
+        assert_eq!(first_per_parent["totalMatches"], 2);
+        assert_eq!(first_per_parent["truncated"], false);
+        assert_eq!(first_per_parent["matches"][0]["value"], "A");
+        assert_eq!(first_per_parent["matches"][1]["value"], "C");
+
+        let last_per_parent = call_view_rpc(
+            &mut plugin,
+            &host,
+            2,
+            "xml.query",
+            json!({ "xml": xml, "query": "//g/item[last()]/text()", "mode": "xpath", "html": false }),
+        );
+        assert_eq!(last_per_parent["count"], 2);
+        assert_eq!(last_per_parent["totalMatches"], 2);
+        assert_eq!(last_per_parent["truncated"], false);
+        assert_eq!(last_per_parent["matches"][0]["value"], "B");
+        assert_eq!(last_per_parent["matches"][1]["value"], "D");
+
+        let descendant_first = call_view_rpc(
+            &mut plugin,
+            &host,
+            3,
+            "xml.query",
+            json!({ "xml": xml, "query": "//item[1]/text()", "mode": "xpath", "html": false }),
+        );
+        assert_eq!(descendant_first["count"], 2);
+        assert_eq!(descendant_first["matches"][0]["value"], "A");
+        assert_eq!(descendant_first["matches"][1]["value"], "C");
+
+        let indexed_group = call_view_rpc(
+            &mut plugin,
+            &host,
+            4,
+            "xml.query",
+            json!({ "xml": xml, "query": "//g[2]/item[1]/text()", "mode": "xpath", "html": false }),
+        );
+        assert_eq!(indexed_group["count"], 1);
+        assert_eq!(indexed_group["matches"][0]["value"], "C");
+    }
 }
